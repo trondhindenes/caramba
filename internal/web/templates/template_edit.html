@@ -1,0 +1,73 @@
+{{define "content"}}
+<p><a href="/templates">&larr; All templates</a></p>
+<h1>{{if .Template.ID}}Edit template{{else}}New template{{end}}</h1>
+
+{{if .Error}}
+<p class="error-box">{{.Error}}</p>
+{{end}}
+
+<form id="template-form" method="post" action="/templates{{if .Template.ID}}/{{.Template.ID}}{{end}}">
+  <div class="form-row">
+    <label>
+      Name
+      <input type="text" name="name" value="{{.Template.Name}}" required>
+    </label>
+    <label>
+      Engine
+      <select name="engine">
+        {{$current := .Template.Engine}}
+        {{range .Engines}}
+        <option value="{{.}}" {{if eq . $current}}selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </label>
+  </div>
+
+  <label>
+    Title template
+    <input type="text" name="title" class="mono" value="{{.Template.Title}}"
+           placeholder="{{`[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}`}}">
+  </label>
+
+  <label>
+    Body template
+    <textarea name="body" class="mono" rows="14">{{.Template.Body}}</textarea>
+  </label>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Save</button>
+  </div>
+
+  <h2>Preview</h2>
+  {{if .Alerts}}
+  <div class="form-row">
+    <label>
+      Against alert
+      <select name="alert_id">
+        {{range .Alerts}}
+        <option value="{{.ID}}">{{formatTime .ReceivedAt}} — {{.Payload.Status}} — {{range $k, $v := .Payload.GroupLabels}}{{$k}}={{$v}} {{end}}</option>
+        {{end}}
+      </select>
+    </label>
+    <button class="btn" type="button"
+            hx-post="/preview" hx-include="#template-form" hx-target="#preview-pane">
+      Preview
+    </button>
+  </div>
+  {{else}}
+  <p class="empty">No alerts received yet — once alerts arrive you can preview against them here.</p>
+  {{end}}
+</form>
+
+<div id="preview-pane"></div>
+
+<details class="help">
+  <summary>Template reference</summary>
+  <p><strong>grafana</strong> (Go templates, portable to Grafana): dot context with
+  <code>.Status</code>, <code>.Receiver</code>, <code>.Alerts</code> (plus <code>.Alerts.Firing</code> / <code>.Alerts.Resolved</code>),
+  <code>.GroupLabels</code>, <code>.CommonLabels</code>, <code>.CommonAnnotations</code>, <code>.ExternalURL</code>.
+  Functions: <code>toUpper</code>, <code>toLower</code>, <code>title</code>, <code>trimSpace</code>, <code>join</code>, <code>match</code>, <code>reReplaceAll</code>.</p>
+  <p><strong>jinja2</strong>: variables use the webhook's JSON field names:
+  <code>status</code>, <code>receiver</code>, <code>alerts</code>, <code>groupLabels</code>, <code>commonLabels</code>, <code>commonAnnotations</code>, <code>externalURL</code>.</p>
+</details>
+{{end}}

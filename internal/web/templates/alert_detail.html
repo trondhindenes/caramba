@@ -54,6 +54,28 @@
 </div>
 {{end}}
 
+{{if .Templates}}
+<h2>Preview with template</h2>
+<form>
+  <input type="hidden" name="alert_id" value="{{.Alert.ID}}">
+  <div class="form-row">
+    <label>
+      Template
+      <select name="template_id">
+        {{range .Templates}}
+        <option value="{{.ID}}">{{.Name}} ({{.Engine}})</option>
+        {{end}}
+      </select>
+    </label>
+    <button class="btn" type="button"
+            hx-post="/preview" hx-include="closest form" hx-target="#preview-pane">
+      Preview
+    </button>
+  </div>
+</form>
+<div id="preview-pane"></div>
+{{end}}
+
 <h2>Raw payload</h2>
 <pre class="raw">{{.PrettyRaw}}</pre>
 {{end}}

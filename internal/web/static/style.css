@@ -158,3 +158,103 @@ select {
   background: #fff;
   font-size: 0.9rem;
 }
+
+/* Forms */
+
+form label {
+  display: block;
+  margin-top: 1rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+input[type="text"], textarea, select {
+  display: block;
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 400;
+  font-family: inherit;
+}
+
+.mono, textarea.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.form-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.form-row label { flex: 1; }
+.form-row select, .form-row input { width: 100%; }
+
+.form-actions { margin-top: 1.5rem; }
+
+.btn {
+  display: inline-block;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--fg);
+  font-size: 0.9rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn.primary:hover { opacity: 0.9; }
+
+.btn.danger:hover { border-color: var(--firing); color: var(--firing); }
+
+.error-box {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-top: 1rem;
+}
+
+/* Template preview */
+
+.preview {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.preview-title {
+  padding: 0.6rem 1rem;
+  font-weight: 700;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-body {
+  margin: 0;
+  padding: 1rem;
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+}
+
+details.help {
+  margin-top: 2rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+details.help summary { cursor: pointer; }

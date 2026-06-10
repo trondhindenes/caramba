@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/trondhindenes/caramba/internal/config"
+	"github.com/trondhindenes/caramba/internal/engine"
+	"github.com/trondhindenes/caramba/internal/model"
 	"github.com/trondhindenes/caramba/internal/repo"
 	"github.com/trondhindenes/caramba/internal/store"
 )
@@ -25,20 +27,31 @@ var assets embed.FS
 const maxPayloadBytes = 1 << 20 // 1 MiB
 
 type Server struct {
-	token      string
-	alerts     *repo.AlertRepo
-	logger     *slog.Logger
-	listTmpl   *template.Template
-	detailTmpl *template.Template
+	token        string
+	alerts       *repo.AlertRepo
+	templates    *repo.TemplateRepo
+	engines      engine.Registry
+	logger       *slog.Logger
+	listTmpl     *template.Template
+	detailTmpl   *template.Template
+	tmplListTmpl *template.Template
+	tmplEditTmpl *template.Template
+	previewTmpl  *template.Template
 }
 
-func NewHandler(cfg *config.Config, alerts *repo.AlertRepo, logger *slog.Logger) http.Handler {
+func NewHandler(cfg *config.Config, alerts *repo.AlertRepo, templates *repo.TemplateRepo, logger *slog.Logger) http.Handler {
 	s := &Server{
-		token:      cfg.WebhookToken,
-		alerts:     alerts,
-		logger:     logger,
-		listTmpl:   parsePage("alerts_list.html"),
-		detailTmpl: parsePage("alert_detail.html"),
+		token:        cfg.WebhookToken,
+		alerts:       alerts,
+		templates:    templates,
+		engines:      engine.NewRegistry(),
+		logger:       logger,
+		listTmpl:     parsePage("alerts_list.html"),
+		detailTmpl:   parsePage("alert_detail.html"),
+		tmplListTmpl: parsePage("templates_list.html"),
+		tmplEditTmpl: parsePage("template_edit.html"),
+		previewTmpl: template.Must(template.New("preview.html").Funcs(tmplFuncs).
+			ParseFS(assets, "templates/preview.html")),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -47,6 +60,13 @@ func NewHandler(cfg *config.Config, alerts *repo.AlertRepo, logger *slog.Logger)
 	mux.HandleFunc("POST /webhook", s.handleWebhook)
 	mux.HandleFunc("GET /{$}", s.handleAlertList)
 	mux.HandleFunc("GET /alerts/{id}", s.handleAlertDetail)
+	mux.HandleFunc("GET /templates", s.handleTemplateList)
+	mux.HandleFunc("GET /templates/new", s.handleTemplateNew)
+	mux.HandleFunc("POST /templates", s.handleTemplateCreate)
+	mux.HandleFunc("GET /templates/{id}", s.handleTemplateEdit)
+	mux.HandleFunc("POST /templates/{id}", s.handleTemplateUpdate)
+	mux.HandleFunc("POST /templates/{id}/delete", s.handleTemplateDelete)
+	mux.HandleFunc("POST /preview", s.handlePreview)
 	mux.Handle("GET /static/", http.FileServerFS(assets))
 	return mux
 }
@@ -134,14 +154,147 @@ func (s *Server) handleAlertDetail(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "loading alert", err)
 		return
 	}
+	templates, err := s.templates.List(r.Context())
+	if err != nil {
+		s.serverError(w, "listing templates", err)
+		return
+	}
 	var pretty bytes.Buffer
 	if err := json.Indent(&pretty, alert.Raw, "", "  "); err != nil {
 		pretty.Write(alert.Raw)
 	}
 	s.render(w, s.detailTmpl, map[string]any{
 		"Alert":     alert,
+		"Templates": templates,
 		"PrettyRaw": pretty.String(),
 	})
+}
+
+func (s *Server) handleTemplateList(w http.ResponseWriter, r *http.Request) {
+	templates, err := s.templates.List(r.Context())
+	if err != nil {
+		s.serverError(w, "listing templates", err)
+		return
+	}
+	s.render(w, s.tmplListTmpl, map[string]any{"Templates": templates})
+}
+
+func (s *Server) handleTemplateNew(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplateEditor(w, r, &model.Template{Engine: "grafana"}, "")
+}
+
+func (s *Server) handleTemplateEdit(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := s.templates.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		s.serverError(w, "loading template", err)
+		return
+	}
+	s.renderTemplateEditor(w, r, tmpl, "")
+}
+
+func (s *Server) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
+	s.saveTemplate(w, r, "")
+}
+
+func (s *Server) handleTemplateUpdate(w http.ResponseWriter, r *http.Request) {
+	s.saveTemplate(w, r, r.PathValue("id"))
+}
+
+func (s *Server) saveTemplate(w http.ResponseWriter, r *http.Request, id string) {
+	tmpl := &model.Template{
+		ID:     id,
+		Name:   r.FormValue("name"),
+		Engine: r.FormValue("engine"),
+		Title:  r.FormValue("title"),
+		Body:   r.FormValue("body"),
+	}
+	if tmpl.Name == "" {
+		s.renderTemplateEditor(w, r, tmpl, "name is required")
+		return
+	}
+	if err := s.engines.ValidateTemplate(tmpl); err != nil {
+		s.renderTemplateEditor(w, r, tmpl, err.Error())
+		return
+	}
+	if err := s.templates.Save(r.Context(), tmpl); err != nil {
+		s.serverError(w, "saving template", err)
+		return
+	}
+	http.Redirect(w, r, "/templates", http.StatusSeeOther)
+}
+
+func (s *Server) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
+	if err := s.templates.Delete(r.Context(), r.PathValue("id")); err != nil {
+		s.serverError(w, "deleting template", err)
+		return
+	}
+	http.Redirect(w, r, "/templates", http.StatusSeeOther)
+}
+
+func (s *Server) renderTemplateEditor(w http.ResponseWriter, r *http.Request, tmpl *model.Template, errMsg string) {
+	alerts, _, err := s.alerts.List(r.Context())
+	if err != nil {
+		s.serverError(w, "listing alerts", err)
+		return
+	}
+	s.render(w, s.tmplEditTmpl, map[string]any{
+		"Template": tmpl,
+		"Engines":  s.engines.Names(),
+		"Alerts":   alerts,
+		"Error":    errMsg,
+	})
+}
+
+// handlePreview renders a template against a stored alert and returns an
+// HTML fragment for the preview pane. It accepts either a saved template
+// (template_id) or unsaved editor contents (engine/title/body), so the
+// editor can preview without saving first.
+func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
+	result := func(rendered *engine.Rendered, err error) {
+		data := map[string]any{}
+		if err != nil {
+			data["Error"] = err.Error()
+		} else {
+			data["Title"] = rendered.Title
+			data["Body"] = rendered.Body
+		}
+		var buf bytes.Buffer
+		if err := s.previewTmpl.Execute(&buf, data); err != nil {
+			s.serverError(w, "rendering preview", err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		buf.WriteTo(w)
+	}
+
+	alertID := r.FormValue("alert_id")
+	if alertID == "" {
+		result(nil, errors.New("choose an alert to preview against"))
+		return
+	}
+	alert, err := s.alerts.Get(r.Context(), alertID)
+	if err != nil {
+		result(nil, fmt.Errorf("loading alert: %w", err))
+		return
+	}
+
+	tmpl := &model.Template{
+		Engine: r.FormValue("engine"),
+		Title:  r.FormValue("title"),
+		Body:   r.FormValue("body"),
+	}
+	if id := r.FormValue("template_id"); id != "" {
+		tmpl, err = s.templates.Get(r.Context(), id)
+		if err != nil {
+			result(nil, fmt.Errorf("loading template: %w", err))
+			return
+		}
+	}
+	result(s.engines.RenderTemplate(tmpl, alert.Payload))
 }
 
 // render executes into a buffer first so template errors become a clean 500

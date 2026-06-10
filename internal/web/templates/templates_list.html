@@ -1,0 +1,35 @@
+{{define "content"}}
+<div class="page-head">
+  <h1>Templates</h1>
+  <a class="btn" href="/templates/new">New template</a>
+</div>
+
+{{if .Templates}}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Engine</th>
+      <th>Updated</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Templates}}
+    <tr>
+      <td><a href="/templates/{{.ID}}">{{.Name}}</a></td>
+      <td><code>{{.Engine}}</code></td>
+      <td>{{formatTime .UpdatedAt}}</td>
+      <td>
+        <form method="post" action="/templates/{{.ID}}/delete" onsubmit="return confirm('Delete template “{{.Name}}”?')">
+          <button class="btn danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="empty">No templates yet. <a href="/templates/new">Create one</a> and preview it against your received alerts.</p>
+{{end}}
+{{end}}

@@ -48,9 +48,10 @@ func run(configPath string, logger *slog.Logger) error {
 	}
 
 	alerts := repo.NewAlertRepo(st)
+	templates := repo.NewTemplateRepo(st)
 	srv := &http.Server{
 		Addr:    cfg.Listen,
-		Handler: web.NewHandler(cfg, alerts, logger),
+		Handler: web.NewHandler(cfg, alerts, templates, logger),
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
