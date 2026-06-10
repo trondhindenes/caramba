@@ -1,0 +1,59 @@
+{{define "content"}}
+<p><a href="/">&larr; All alerts</a></p>
+<div class="page-head">
+  <h1>
+    <span class="badge {{.Alert.Payload.Status}}">{{.Alert.Payload.Status}}</span>
+    {{.Alert.Payload.Title}}
+  </h1>
+</div>
+<p class="meta">
+  Received {{formatTime .Alert.ReceivedAt}}
+  &middot; receiver <strong>{{.Alert.Payload.Receiver}}</strong>
+  &middot; {{len .Alert.Payload.Alerts}} alert(s)
+</p>
+
+{{if .Alert.Payload.GroupLabels}}
+<h2>Group labels</h2>
+<table class="kv">
+  {{range $k, $v := .Alert.Payload.GroupLabels}}<tr><th>{{$k}}</th><td>{{$v}}</td></tr>{{end}}
+</table>
+{{end}}
+
+{{if .Alert.Payload.CommonLabels}}
+<h2>Common labels</h2>
+<table class="kv">
+  {{range $k, $v := .Alert.Payload.CommonLabels}}<tr><th>{{$k}}</th><td>{{$v}}</td></tr>{{end}}
+</table>
+{{end}}
+
+{{if .Alert.Payload.CommonAnnotations}}
+<h2>Common annotations</h2>
+<table class="kv">
+  {{range $k, $v := .Alert.Payload.CommonAnnotations}}<tr><th>{{$k}}</th><td>{{$v}}</td></tr>{{end}}
+</table>
+{{end}}
+
+<h2>Alerts in this group</h2>
+{{range .Alert.Payload.Alerts}}
+<div class="alert-card">
+  <div class="alert-card-head">
+    <span class="badge {{.Status}}">{{.Status}}</span>
+    <span class="meta">started {{formatTime .StartsAt}}{{if .ValueString}} &middot; {{.ValueString}}{{end}}</span>
+  </div>
+  {{if .Labels}}
+  <table class="kv">
+    {{range $k, $v := .Labels}}<tr><th>{{$k}}</th><td>{{$v}}</td></tr>{{end}}
+  </table>
+  {{end}}
+  {{if .Annotations}}
+  <table class="kv annotations">
+    {{range $k, $v := .Annotations}}<tr><th>{{$k}}</th><td>{{$v}}</td></tr>{{end}}
+  </table>
+  {{end}}
+  {{if .GeneratorURL}}<p class="meta"><a href="{{.GeneratorURL}}">View in Grafana</a></p>{{end}}
+</div>
+{{end}}
+
+<h2>Raw payload</h2>
+<pre class="raw">{{.PrettyRaw}}</pre>
+{{end}}

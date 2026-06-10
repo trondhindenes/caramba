@@ -1,0 +1,13 @@
+# Build output
+/caramba
+
+# Local runtime data and config
+/data/
+config.yml
+
+# Local tool state
+.claude/settings.local.json
+.DS_Store
+
+# Local planning notes
+/plans/

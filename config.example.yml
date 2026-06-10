@@ -1,0 +1,23 @@
+# caramba configuration. Values support ${ENV_VAR} expansion so secrets can
+# stay out of this file.
+
+listen: ":8080"
+
+# Shared secret for the webhook endpoint. Configure the same value as a
+# Bearer token on the Grafana webhook contact point.
+webhook_token: ${WEBHOOK_TOKEN}
+
+# How long to keep received alerts. 0 disables cleanup.
+retention: 720h
+
+store:
+  type: local # local | gcs (gcs not implemented yet)
+  path: ./data
+  # bucket: my-alerts   # gcs only
+  # prefix: caramba/    # gcs only, optional
+
+destinations: []
+# destinations:
+#   - name: ops-slack
+#     type: slack
+#     webhook_url: ${SLACK_WEBHOOK_OPS}

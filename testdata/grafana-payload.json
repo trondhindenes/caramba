@@ -1,0 +1,77 @@
+{
+  "receiver": "caramba",
+  "status": "firing",
+  "orgId": 1,
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "HighCPU",
+        "grafana_folder": "infra",
+        "instance": "web-1.example.com",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "CPU usage above 90% for 5 minutes",
+        "runbook_url": "https://runbooks.example.com/high-cpu"
+      },
+      "startsAt": "2026-06-10T07:55:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://grafana.example.com/alerting/grafana/abc123/view",
+      "fingerprint": "f1e2d3c4b5a69788",
+      "silenceURL": "https://grafana.example.com/alerting/silence/new?matcher=alertname%3DHighCPU",
+      "dashboardURL": "",
+      "panelURL": "",
+      "values": {
+        "B": 94.5,
+        "C": 1
+      },
+      "valueString": "[ var='B' labels={instance=web-1.example.com} value=94.5 ]"
+    },
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "HighCPU",
+        "grafana_folder": "infra",
+        "instance": "web-2.example.com",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "CPU usage above 90% for 5 minutes",
+        "runbook_url": "https://runbooks.example.com/high-cpu"
+      },
+      "startsAt": "2026-06-10T07:57:30Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://grafana.example.com/alerting/grafana/abc123/view",
+      "fingerprint": "a9b8c7d6e5f40312",
+      "silenceURL": "https://grafana.example.com/alerting/silence/new?matcher=alertname%3DHighCPU",
+      "dashboardURL": "",
+      "panelURL": "",
+      "values": {
+        "B": 91.2,
+        "C": 1
+      },
+      "valueString": "[ var='B' labels={instance=web-2.example.com} value=91.2 ]"
+    }
+  ],
+  "groupLabels": {
+    "alertname": "HighCPU",
+    "grafana_folder": "infra"
+  },
+  "commonLabels": {
+    "alertname": "HighCPU",
+    "grafana_folder": "infra",
+    "severity": "critical"
+  },
+  "commonAnnotations": {
+    "summary": "CPU usage above 90% for 5 minutes",
+    "runbook_url": "https://runbooks.example.com/high-cpu"
+  },
+  "externalURL": "https://grafana.example.com/",
+  "version": "1",
+  "groupKey": "{}:{alertname=\"HighCPU\", grafana_folder=\"infra\"}",
+  "truncatedAlerts": 0,
+  "title": "[FIRING:2] HighCPU infra",
+  "state": "alerting",
+  "message": "**Firing**\n\nValue: B=94.5, C=1\nLabels:\n - alertname = HighCPU\n - instance = web-1.example.com\n"
+}

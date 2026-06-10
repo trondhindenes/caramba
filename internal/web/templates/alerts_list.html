@@ -1,0 +1,45 @@
+{{define "content"}}
+<div class="page-head">
+  <h1>Alerts</h1>
+  <form method="get" action="/">
+    <select name="status" onchange="this.form.submit()">
+      <option value="" {{if eq .Status ""}}selected{{end}}>All statuses</option>
+      <option value="firing" {{if eq .Status "firing"}}selected{{end}}>Firing</option>
+      <option value="resolved" {{if eq .Status "resolved"}}selected{{end}}>Resolved</option>
+    </select>
+  </form>
+</div>
+
+{{if .Truncated}}
+<p class="notice">Showing the 200 most recent alerts; older alerts exist in the store.</p>
+{{end}}
+
+{{if .Alerts}}
+<table>
+  <thead>
+    <tr>
+      <th>Received</th>
+      <th>Status</th>
+      <th>Group</th>
+      <th>Alerts</th>
+      <th>Receiver</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Alerts}}
+    <tr>
+      <td><a href="/alerts/{{.ID}}">{{formatTime .ReceivedAt}}</a></td>
+      <td><span class="badge {{.Payload.Status}}">{{.Payload.Status}}</span></td>
+      <td class="labels">
+        {{range $k, $v := .Payload.GroupLabels}}<span class="label">{{$k}}={{$v}}</span>{{end}}
+      </td>
+      <td>{{.Payload.FiringCount}} firing, {{.Payload.ResolvedCount}} resolved</td>
+      <td>{{.Payload.Receiver}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="empty">No alerts{{if .Status}} with status “{{.Status}}”{{end}} yet. Point a Grafana webhook contact point at <code>POST /webhook</code>.</p>
+{{end}}
+{{end}}
