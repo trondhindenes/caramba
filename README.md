@@ -130,7 +130,12 @@ Routing runs in the background after an alert is stored. Transient Slack failure
 
 ### AI agents (MCP)
 
-When `mcp_token` is set, caramba serves a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` (streamable HTTP, stateless). It lets an agent browse stored alerts and iterate on templates by previewing drafts against real payloads. The tools are read-only — `list_alerts`, `get_alert`, `list_templates`, `get_template`, `preview_template` — so the agent can't save templates or send anything.
+When `mcp_token` is set, caramba serves a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` (streamable HTTP, stateless). It lets an agent browse stored alerts and author templates by previewing drafts against real payloads:
+
+- read: `list_alerts`, `get_alert`, `list_templates`, `get_template`, `preview_template`
+- write: `save_template` (create, or update by id; validated before saving) and `delete_template` (refused while a routing rule uses the template)
+
+The agent can't send messages or change routing rules. Note that updating a template changes live messages for every rule using it.
 
 Add it to Claude Code:
 
@@ -157,7 +162,7 @@ internal/model/    Grafana webhook payload structs
 internal/store/    blob store interface + local-folder implementation
 internal/repo/     typed repositories on top of the store (the future-DB seam)
 internal/web/      webhook endpoint + server-rendered GUI (embedded templates/CSS)
-internal/mcpserver/ MCP endpoint for AI agents (read-only tools)
+internal/mcpserver/ MCP endpoint for AI agents (alerts, templates)
 internal/route/    rule matching (first match wins)
 internal/dispatch/ routes received alerts: match, render, send, record
 internal/notify/   destination senders (Slack)

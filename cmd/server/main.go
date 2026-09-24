@@ -68,7 +68,7 @@ func run(configPath string, logger *slog.Logger) error {
 		Logger:       logger,
 	}))
 	if cfg.MCPToken != "" {
-		mux.Handle("/mcp", mcpserver.NewHandler(alerts, templates, cfg.MCPToken, logger))
+		mux.Handle("/mcp", mcpserver.NewHandler(alerts, templates, rules, cfg.MCPToken, logger))
 	}
 	srv := &http.Server{
 		Addr:    cfg.Listen,

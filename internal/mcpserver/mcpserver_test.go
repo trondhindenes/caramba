@@ -23,6 +23,7 @@ const testToken = "mcp-test-token"
 type fixtures struct {
 	alerts    *repo.AlertRepo
 	templates *repo.TemplateRepo
+	rules     *repo.RuleRepo
 }
 
 func newRepos(t *testing.T) fixtures {
@@ -31,7 +32,7 @@ func newRepos(t *testing.T) fixtures {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return fixtures{alerts: repo.NewAlertRepo(st), templates: repo.NewTemplateRepo(st)}
+	return fixtures{alerts: repo.NewAlertRepo(st), templates: repo.NewTemplateRepo(st), rules: repo.NewRuleRepo(st)}
 }
 
 func (f fixtures) saveAlert(t *testing.T, raw []byte) string {
@@ -57,7 +58,7 @@ func grafanaFixture(t *testing.T) []byte {
 func connect(t *testing.T, f fixtures) *mcp.ClientSession {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ts := httptest.NewServer(NewHandler(f.alerts, f.templates, testToken, logger))
+	ts := httptest.NewServer(NewHandler(f.alerts, f.templates, f.rules, testToken, logger))
 	t.Cleanup(ts.Close)
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	cs, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{
@@ -104,7 +105,7 @@ func call(t *testing.T, cs *mcp.ClientSession, name string, args any, out any) s
 func TestRequiresToken(t *testing.T) {
 	f := newRepos(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ts := httptest.NewServer(NewHandler(f.alerts, f.templates, testToken, logger))
+	ts := httptest.NewServer(NewHandler(f.alerts, f.templates, f.rules, testToken, logger))
 	defer ts.Close()
 	for _, auth := range []string{"", "Bearer wrong"} {
 		req, _ := http.NewRequest("POST", ts.URL, strings.NewReader("{}"))
@@ -221,5 +222,68 @@ func TestPreview(t *testing.T) {
 	}, nil)
 	if !strings.Contains(msg, "title") {
 		t.Errorf("render error: want title error, got %q", msg)
+	}
+}
+
+func TestSaveTemplate(t *testing.T) {
+	f := newRepos(t)
+	cs := connect(t, f)
+
+	var created model.Template
+	msg := call(t, cs, "save_template", map[string]any{
+		"name": "passthrough", "engine": "jinja2", "title": "{{ title }}", "body": "{{ message }}",
+	}, &created)
+	if msg != "" || created.ID == "" {
+		t.Fatalf("create: %q %+v", msg, created)
+	}
+
+	var updated model.Template
+	call(t, cs, "save_template", map[string]any{
+		"id": created.ID, "name": "passthrough", "engine": "jinja2", "title": "{{ title }}!", "body": "b",
+	}, &updated)
+	stored, err := f.templates.List(t.Context())
+	if err != nil || len(stored) != 1 || stored[0].Title != "{{ title }}!" || updated.ID != created.ID {
+		t.Fatalf("update in place: %+v, %v", stored, err)
+	}
+
+	for want, args := range map[string]map[string]any{
+		"name is required":          {"name": "", "engine": "jinja2", "title": "t", "body": "b"},
+		"unknown template engine":   {"name": "x", "engine": "nope", "title": "t", "body": "b"},
+		"title":                     {"name": "x", "engine": "grafana", "title": "{{ .Broken", "body": "b"},
+		"no template with id \"x\"": {"id": "x", "name": "x", "engine": "jinja2", "title": "t", "body": "b"},
+	} {
+		if msg := call(t, cs, "save_template", args, nil); !strings.Contains(msg, want) {
+			t.Errorf("want error containing %q, got %q", want, msg)
+		}
+	}
+	if stored, _ := f.templates.List(t.Context()); len(stored) != 1 {
+		t.Errorf("invalid templates were saved: %d stored", len(stored))
+	}
+}
+
+func TestDeleteTemplate(t *testing.T) {
+	f := newRepos(t)
+	used := &model.Template{Name: "used", Engine: "jinja2"}
+	unused := &model.Template{Name: "unused", Engine: "jinja2"}
+	for _, tm := range []*model.Template{used, unused} {
+		if err := f.templates.Save(t.Context(), tm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.rules.Save(t.Context(), &model.Rule{Name: "default", TemplateID: used.ID}); err != nil {
+		t.Fatal(err)
+	}
+	cs := connect(t, f)
+
+	if msg := call(t, cs, "delete_template", map[string]any{"id": used.ID}, nil); !strings.Contains(msg, `"default"`) {
+		t.Errorf("deleting a template in use should name the rule, got %q", msg)
+	}
+	var out deleteTemplateOutput
+	if msg := call(t, cs, "delete_template", map[string]any{"id": unused.ID}, &out); msg != "" || out.Deleted != unused.ID {
+		t.Fatalf("delete: %q %+v", msg, out)
+	}
+	stored, _ := f.templates.List(t.Context())
+	if len(stored) != 1 || stored[0].ID != used.ID {
+		t.Errorf("remaining templates: %+v", stored)
 	}
 }
