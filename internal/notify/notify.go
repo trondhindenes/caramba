@@ -14,9 +14,21 @@ import (
 	"github.com/trondhindenes/caramba/internal/engine"
 )
 
-// Sender delivers one rendered message to a destination.
+// Message is a rendered template plus the alert context senders may use for
+// presentation, such as picking a color.
+type Message struct {
+	engine.Rendered
+	// Status is the alert group's status: "firing" or "resolved".
+	Status string
+	// AlertTitle is Grafana's title for the group, which color rules match.
+	AlertTitle string
+	// Link points at the alert in Grafana; empty when unknown.
+	Link string
+}
+
+// Sender delivers one message to a destination.
 type Sender interface {
-	Send(ctx context.Context, msg *engine.Rendered) error
+	Send(ctx context.Context, msg *Message) error
 }
 
 // permanentError marks a failure that retrying cannot fix.
@@ -31,18 +43,24 @@ type Registry struct {
 	Backoff []time.Duration
 }
 
-func NewRegistry(dests []config.Destination) *Registry {
+func NewRegistry(dests []config.Destination, colors []config.ColorRule) (*Registry, error) {
 	r := &Registry{
 		senders: map[string]Sender{},
 		Backoff: []time.Duration{time.Second, 5 * time.Second},
 	}
+	colorizer, err := newColorizer(colors)
+	if err != nil {
+		return nil, err
+	}
 	for _, d := range dests {
 		switch d.Type {
-		case "slack":
+		case config.DestSlack:
 			r.senders[d.Name] = NewSlack(d.WebhookURL)
+		case config.DestSlackAttachment:
+			r.senders[d.Name] = NewSlackAttachment(d.WebhookURL, colorizer)
 		}
 	}
-	return r
+	return r, nil
 }
 
 // Add registers a sender under a name; used by tests and future types.
@@ -60,7 +78,7 @@ func (r *Registry) Names() []string {
 
 // Send delivers msg to the named destination, retrying transient failures.
 // It returns how many attempts were made.
-func (r *Registry) Send(ctx context.Context, name string, msg *engine.Rendered) (attempts int, err error) {
+func (r *Registry) Send(ctx context.Context, name string, msg *Message) (attempts int, err error) {
 	s, ok := r.senders[name]
 	if !ok {
 		return 0, fmt.Errorf("unknown destination %q (not in config)", name)

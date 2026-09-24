@@ -54,7 +54,10 @@ func run(configPath string, logger *slog.Logger) error {
 	templates := repo.NewTemplateRepo(st)
 	rules := repo.NewRuleRepo(st)
 	dispatches := repo.NewDispatchRepo(st)
-	destinations := notify.NewRegistry(cfg.Destinations)
+	destinations, err := notify.NewRegistry(cfg.Destinations, cfg.Colors)
+	if err != nil {
+		return err
+	}
 	dispatcher := dispatch.New(rules, templates, dispatches, destinations, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/", web.NewHandler(web.Deps{

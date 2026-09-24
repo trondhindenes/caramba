@@ -26,5 +26,15 @@ store:
 destinations: []
 # destinations:
 #   - name: ops-slack
-#     type: slack
+#     type: slack-attachment   # slack (plain text) | slack-attachment (color bar)
 #     webhook_url: ${SLACK_WEBHOOK_OPS}
+
+# Colors for slack-attachment destinations: the first rule whose wildcard
+# pattern matches the alert's Grafana title wins. Unmatched alerts are red
+# while firing and green once resolved.
+colors: []
+# colors:
+#   - title: "*critical*"
+#     color: "#D63232"         # #RRGGBB, or good / warning / danger
+#   - title: "*(staging)*"
+#     color: warning

@@ -27,6 +27,14 @@ destinations:
   - name: ops-slack
     type: slack
     webhook_url: https://hooks.slack.com/services/x/y/z
+  - name: ops-color
+    type: slack-attachment
+    webhook_url: https://hooks.slack.com/services/x/y/w
+colors:
+  - title: "*critical*"
+    color: "#D63232"
+  - title: "*staging*"
+    color: warning
 `
 
 func TestLoad(t *testing.T) {
@@ -44,7 +52,10 @@ func TestLoad(t *testing.T) {
 	if time.Duration(cfg.Retention) != 720*time.Hour {
 		t.Errorf("retention: %v", cfg.Retention)
 	}
-	if len(cfg.Destinations) != 1 || cfg.Destinations[0].Name != "ops-slack" {
+	if len(cfg.Colors) != 2 || cfg.Colors[1].Color != "warning" {
+		t.Errorf("colors: %+v", cfg.Colors)
+	}
+	if len(cfg.Destinations) != 2 || cfg.Destinations[0].Name != "ops-slack" {
 		t.Errorf("destinations: %+v", cfg.Destinations)
 	}
 }
@@ -58,6 +69,9 @@ func TestValidation(t *testing.T) {
 		{"local without path", "webhook_token: t\nstore: {type: local}", "store.path"},
 		{"gcs without bucket", "webhook_token: t\nstore: {type: gcs}", "store.bucket"},
 		{"mcp token reuses webhook token", "webhook_token: t\nmcp_token: t\nstore: {type: local, path: /d}", "mcp_token"},
+		{"bad destination type", "webhook_token: t\nstore: {type: local, path: /d}\ndestinations: [{name: a, type: teams, webhook_url: u}]", "slack-attachment"},
+		{"color without title", "webhook_token: t\nstore: {type: local, path: /d}\ncolors: [{color: good}]", "title pattern"},
+		{"bad color", "webhook_token: t\nstore: {type: local, path: /d}\ncolors: [{title: x, color: red}]", "#RRGGBB"},
 		{"unknown field", "webhook_token: t\nstore: {type: local, path: /d}\nbogus: 1", "bogus"},
 		{
 			"duplicate destination",

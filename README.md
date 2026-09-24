@@ -56,8 +56,9 @@ store:
   path: ./data
 destinations:                     # where routing rules can send messages
   - name: ops-slack
-    type: slack                     # Slack incoming webhook
+    type: slack-attachment          # slack (plain text) | slack-attachment (color bar)
     webhook_url: ${SLACK_WEBHOOK_OPS}
+colors: []                        # optional title → color rules for slack-attachment
 ```
 
 ### Pointing Grafana at it
@@ -87,16 +88,28 @@ caramba posts to Slack through [incoming webhooks](https://api.slack.com/messagi
 3. Click **Add New Webhook to Workspace**, choose the channel (e.g. `#ops-alerts`) and allow it.
 4. Copy the webhook URL (`https://hooks.slack.com/services/T…/B…/…`). Treat it as a secret: anyone with it can post to the channel.
 
-Reference it from the config through an environment variable, so the URL stays out of the file:
+Reference it from the config through an environment variable, so the URL stays out of the file. There are two Slack destination types:
+
+- `slack` — a plain message: the template title in bold, then the body.
+- `slack-attachment` — a (legacy) Slack attachment, like Grafana's own Slack notifications: a colored bar down the side, the title linking to the alert in Grafana, and a footer. Slack collapses long attachment text behind "Show more".
 
 ```yaml
 destinations:
   - name: ops-slack                         # the name rules refer to
-    type: slack
+    type: slack-attachment
     webhook_url: ${SLACK_WEBHOOK_OPS}
   - name: dev-slack
     type: slack
     webhook_url: ${SLACK_WEBHOOK_DEV}
+
+# Optional colors for slack-attachment destinations. The first rule whose
+# pattern matches the alert's Grafana title (e.g. "[FIRING:1] disk critical …")
+# wins; unmatched alerts are red while firing and green once resolved.
+colors:
+  - title: "*critical*"
+    color: "#D63232"                        # #RRGGBB, or Slack's good / warning / danger
+  - title: "*(staging)*"
+    color: warning
 ```
 
 ```sh
@@ -109,7 +122,7 @@ docker run -p 8080:8080 \
   ghcr.io/trondhindenes/caramba:latest
 ```
 
-Destinations are read at startup; restart caramba after changing them. They then appear as checkboxes on the rule editor. Messages are sent as Slack mrkdwn — the template title in bold, then the body — so preview templates with **Render as: slack** to see what the channel will get, and use a rule's **Send test** button to check the webhook end to end.
+Destinations and colors are read at startup; restart caramba after changing them. Destinations then appear as checkboxes on the rule editor. Message bodies are Slack mrkdwn, so preview templates with **Render as: slack** to see what the channel will get, and use a rule's **Send test** button to check the webhook end to end.
 
 ### Routing
 
@@ -165,7 +178,7 @@ internal/web/      webhook endpoint + server-rendered GUI (embedded templates/CS
 internal/mcpserver/ MCP endpoint for AI agents (alerts, templates)
 internal/route/    rule matching (first match wins)
 internal/dispatch/ routes received alerts: match, render, send, record
-internal/notify/   destination senders (Slack)
+internal/notify/   destination senders (Slack plain text and attachments)
 testdata/          captured Grafana webhook payloads used as fixtures
 ```
 

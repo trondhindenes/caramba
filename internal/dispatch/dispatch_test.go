@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trondhindenes/caramba/internal/engine"
 	"github.com/trondhindenes/caramba/internal/model"
 	"github.com/trondhindenes/caramba/internal/notify"
 	"github.com/trondhindenes/caramba/internal/repo"
@@ -20,11 +19,11 @@ import (
 // recorder is a fake destination capturing what it was sent.
 type recorder struct {
 	mu   sync.Mutex
-	msgs []*engine.Rendered
+	msgs []*notify.Message
 	err  error
 }
 
-func (r *recorder) Send(_ context.Context, m *engine.Rendered) error {
+func (r *recorder) Send(_ context.Context, m *notify.Message) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.msgs = append(r.msgs, m)
@@ -53,7 +52,7 @@ func setup(t *testing.T) *env {
 		ops:        &recorder{},
 		dev:        &recorder{},
 	}
-	dests := notify.NewRegistry(nil)
+	dests, _ := notify.NewRegistry(nil, nil)
 	dests.Backoff = nil
 	dests.Add("ops", e.ops)
 	dests.Add("dev", e.dev)
@@ -102,6 +101,9 @@ func TestFirstMatchingRuleSends(t *testing.T) {
 	}
 	if len(e.dev.msgs) != 1 {
 		t.Errorf("dev got %d messages", len(e.dev.msgs))
+	}
+	if m := e.ops.msgs[0]; m.Status != "firing" || m.AlertTitle != "[FIRING:2] HighCPU infra" || m.Link == "" {
+		t.Errorf("message context: %+v", m)
 	}
 
 	saved, err := e.dispatches.Get(t.Context(), e.alert.ID)

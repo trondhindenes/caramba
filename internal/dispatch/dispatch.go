@@ -95,10 +95,11 @@ func (d *Dispatcher) Deliver(ctx context.Context, rule *model.Rule, alert *repo.
 	if err != nil {
 		return d.failed(alert, rec, fmt.Errorf("loading template %q: %w", rule.TemplateID, err))
 	}
-	msg, err := d.engines.RenderTemplate(tmpl, alert.Payload)
+	rendered, err := d.engines.RenderTemplate(tmpl, alert.Payload)
 	if err != nil {
 		return d.failed(alert, rec, fmt.Errorf("rendering template %q: %w", tmpl.Name, err))
 	}
+	msg := message(rendered, alert.Payload)
 
 	rec.Results = make([]model.DeliveryResult, len(rule.Destinations))
 	var wg sync.WaitGroup
@@ -120,6 +121,15 @@ func (d *Dispatcher) Deliver(ctx context.Context, rule *model.Rule, alert *repo.
 	}
 	wg.Wait()
 	return rec
+}
+
+// message adds the alert context destinations use for presentation.
+func message(r *engine.Rendered, p *model.Payload) *notify.Message {
+	link := p.ExternalURL
+	if len(p.Alerts) > 0 && p.Alerts[0].GeneratorURL != "" {
+		link = p.Alerts[0].GeneratorURL
+	}
+	return &notify.Message{Rendered: *r, Status: p.Status, AlertTitle: p.Title, Link: link}
 }
 
 func (d *Dispatcher) failed(alert *repo.StoredAlert, rec *model.Dispatch, err error) *model.Dispatch {

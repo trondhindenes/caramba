@@ -41,7 +41,7 @@ func Matches(r *model.Rule, doc any) bool {
 }
 
 func matchOne(m model.Matcher, doc any) bool {
-	re, err := globRegexp(m.Pattern)
+	re, err := Glob(m.Pattern)
 	if err != nil {
 		return false
 	}
@@ -90,7 +90,9 @@ func scalarString(v any) (string, bool) {
 	return "", false
 }
 
-func globRegexp(pattern string) (*regexp.Regexp, error) {
+// Glob compiles a case-insensitive wildcard pattern (* and ?) that must
+// match the whole string.
+func Glob(pattern string) (*regexp.Regexp, error) {
 	var b strings.Builder
 	b.WriteString("(?is)^")
 	for _, r := range pattern {

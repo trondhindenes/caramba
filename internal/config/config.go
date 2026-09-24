@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -38,6 +39,13 @@ type Destination struct {
 	WebhookURL string `yaml:"webhook_url"`
 }
 
+// ColorRule picks the attachment color for slack-attachment destinations
+// when the alert's title matches the wildcard pattern.
+type ColorRule struct {
+	Title string `yaml:"title"`
+	Color string `yaml:"color"`
+}
+
 type Config struct {
 	Listen       string        `yaml:"listen"`
 	WebhookToken string        `yaml:"webhook_token"`
@@ -45,7 +53,17 @@ type Config struct {
 	Retention    Duration      `yaml:"retention"`
 	Store        StoreConfig   `yaml:"store"`
 	Destinations []Destination `yaml:"destinations"`
+	Colors       []ColorRule   `yaml:"colors"`
 }
+
+// Destination types.
+const (
+	DestSlack           = "slack"            // plain text message
+	DestSlackAttachment = "slack-attachment" // legacy attachment with a color bar
+)
+
+// Slack accepts hex colors or its named ones.
+var colorPattern = regexp.MustCompile(`^(#[0-9a-fA-F]{6}|good|warning|danger)$`)
 
 func Load(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
@@ -92,11 +110,19 @@ func (c *Config) validate() error {
 			return fmt.Errorf("duplicate destination name %q", d.Name)
 		}
 		seen[d.Name] = true
-		if d.Type != "slack" {
-			return fmt.Errorf("destination %q: type must be \"slack\", got %q", d.Name, d.Type)
+		if d.Type != DestSlack && d.Type != DestSlackAttachment {
+			return fmt.Errorf("destination %q: type must be %q or %q, got %q", d.Name, DestSlack, DestSlackAttachment, d.Type)
 		}
 		if d.WebhookURL == "" {
 			return fmt.Errorf("destination %q: webhook_url is required", d.Name)
+		}
+	}
+	for i, c := range c.Colors {
+		if c.Title == "" {
+			return fmt.Errorf("colors[%d]: title pattern is required", i)
+		}
+		if !colorPattern.MatchString(c.Color) {
+			return fmt.Errorf("colors[%d]: color must be #RRGGBB, good, warning or danger, got %q", i, c.Color)
 		}
 	}
 	return nil

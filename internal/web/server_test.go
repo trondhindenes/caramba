@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/trondhindenes/caramba/internal/dispatch"
-	"github.com/trondhindenes/caramba/internal/engine"
 	"github.com/trondhindenes/caramba/internal/model"
 	"github.com/trondhindenes/caramba/internal/notify"
 	"github.com/trondhindenes/caramba/internal/repo"
@@ -43,10 +42,10 @@ type testEnv struct {
 
 type fakeDestination struct {
 	mu   sync.Mutex
-	sent []*engine.Rendered
+	sent []*notify.Message
 }
 
-func (f *fakeDestination) Send(_ context.Context, m *engine.Rendered) error {
+func (f *fakeDestination) Send(_ context.Context, m *notify.Message) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, m)
@@ -73,9 +72,12 @@ func newTestEnv(t *testing.T) *testEnv {
 		dispatches: repo.NewDispatchRepo(st),
 		ops:        &fakeDestination{},
 	}
-	dests := notify.NewRegistry(nil)
+	dests, _ := notify.NewRegistry(nil, nil)
 	dests.Add("ops", e.ops)
 	e.dispatcher = dispatch.New(e.rules, e.templates, e.dispatches, dests, logger)
+	// Cleanups run last-in first-out: close the server, then let background
+	// routing finish before the temp dir is removed.
+	t.Cleanup(e.dispatcher.Wait)
 	e.ts = httptest.NewServer(NewHandler(Deps{
 		WebhookToken: testToken,
 		Alerts:       e.alerts,

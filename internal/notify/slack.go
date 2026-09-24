@@ -11,42 +11,83 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/trondhindenes/caramba/internal/engine"
 )
 
 // maxSlackText stays under Slack's 40k character limit for message text.
 const maxSlackText = 39000
 
-// Slack posts to a Slack incoming webhook. The title is sent in bold above
-// the body; both are Slack mrkdwn.
-type Slack struct {
+// webhook posts JSON payloads to a Slack incoming webhook.
+type webhook struct {
 	url    string
 	client *http.Client
 }
 
-func NewSlack(webhookURL string) *Slack {
-	return &Slack{url: webhookURL, client: &http.Client{Timeout: 15 * time.Second}}
+func newWebhook(webhookURL string) webhook {
+	return webhook{url: webhookURL, client: &http.Client{Timeout: 15 * time.Second}}
 }
 
-func (s *Slack) Send(ctx context.Context, msg *engine.Rendered) error {
+// Slack sends a plain text message: the title in bold above the body, both
+// Slack mrkdwn.
+type Slack struct{ webhook }
+
+func NewSlack(webhookURL string) *Slack {
+	return &Slack{newWebhook(webhookURL)}
+}
+
+func (s *Slack) Send(ctx context.Context, msg *Message) error {
 	text := strings.TrimSpace(msg.Body)
 	if title := strings.TrimSpace(msg.Title); title != "" {
 		text = "*" + title + "*\n" + text
 	}
-	if len(text) > maxSlackText {
-		text = text[:maxSlackText] + "\n…(truncated)"
+	return s.post(ctx, map[string]string{"text": truncate(text)})
+}
+
+// SlackAttachment sends a legacy Slack attachment, the only message form
+// with a colored side bar. The title links to the alert in Grafana.
+type SlackAttachment struct {
+	webhook
+	colors *colorizer
+}
+
+func NewSlackAttachment(webhookURL string, colors *colorizer) *SlackAttachment {
+	return &SlackAttachment{webhook: newWebhook(webhookURL), colors: colors}
+}
+
+func (s *SlackAttachment) Send(ctx context.Context, msg *Message) error {
+	title := strings.TrimSpace(msg.Title)
+	attachment := map[string]any{
+		"fallback":  title,
+		"color":     s.colors.color(msg),
+		"title":     title,
+		"text":      truncate(strings.TrimSpace(msg.Body)),
+		"mrkdwn_in": []string{"text"},
+		"footer":    "caramba",
+		"ts":        time.Now().Unix(),
 	}
-	payload, err := json.Marshal(map[string]string{"text": text})
+	if msg.Link != "" {
+		attachment["title_link"] = msg.Link
+	}
+	return s.post(ctx, map[string]any{"attachments": []any{attachment}})
+}
+
+func truncate(text string) string {
+	if len(text) > maxSlackText {
+		return text[:maxSlackText] + "\n…(truncated)"
+	}
+	return text
+}
+
+func (w webhook) post(ctx context.Context, payload any) error {
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return permanentError{err}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.url, bytes.NewReader(body))
 	if err != nil {
 		return permanentError{err}
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := s.client.Do(req)
+	resp, err := w.client.Do(req)
 	if err != nil {
 		// Strip the URL: the webhook URL is the secret.
 		return fmt.Errorf("posting to slack: %w", unwrapURLError(err))
