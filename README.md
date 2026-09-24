@@ -49,6 +49,7 @@ Config values support `${ENV_VAR}` expansion so secrets stay out of the file:
 ```yaml
 listen: ":8080"
 webhook_token: ${WEBHOOK_TOKEN}   # shared secret for the webhook endpoint (required)
+mcp_token: ${MCP_TOKEN}           # bearer token for the MCP endpoint; empty disables it
 retention: 720h                   # how long to keep alerts; 0 = forever (cleanup job not implemented yet)
 store:
   type: local                     # local | gcs (gcs not implemented yet)
@@ -74,6 +75,19 @@ curl -X POST localhost:8080/webhook \
   --data @testdata/grafana-payload.json
 ```
 
+### AI agents (MCP)
+
+When `mcp_token` is set, caramba serves a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` (streamable HTTP, stateless). It lets an agent browse stored alerts and iterate on templates by previewing drafts against real payloads. The tools are read-only — `list_alerts`, `get_alert`, `list_templates`, `get_template`, `preview_template` — so the agent can't save templates or send anything.
+
+Add it to Claude Code:
+
+```sh
+claude mcp add --transport http caramba http://localhost:8080/mcp \
+  --header "Authorization: Bearer $MCP_TOKEN"
+```
+
+Alert labels and annotations come from monitored systems and are passed to the agent as-is; treat them as untrusted input.
+
 ## Development
 
 ```sh
@@ -90,6 +104,7 @@ internal/model/    Grafana webhook payload structs
 internal/store/    blob store interface + local-folder implementation
 internal/repo/     typed repositories on top of the store (the future-DB seam)
 internal/web/      webhook endpoint + server-rendered GUI (embedded templates/CSS)
+internal/mcpserver/ MCP endpoint for AI agents (read-only tools)
 testdata/          captured Grafana webhook payloads used as fixtures
 ```
 

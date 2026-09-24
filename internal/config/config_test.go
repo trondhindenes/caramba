@@ -57,6 +57,7 @@ func TestValidation(t *testing.T) {
 		{"bad store type", "webhook_token: t\nstore: {type: s3}", "store.type"},
 		{"local without path", "webhook_token: t\nstore: {type: local}", "store.path"},
 		{"gcs without bucket", "webhook_token: t\nstore: {type: gcs}", "store.bucket"},
+		{"mcp token reuses webhook token", "webhook_token: t\nmcp_token: t\nstore: {type: local, path: /d}", "mcp_token"},
 		{"unknown field", "webhook_token: t\nstore: {type: local, path: /d}\nbogus: 1", "bogus"},
 		{
 			"duplicate destination",

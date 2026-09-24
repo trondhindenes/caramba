@@ -13,6 +13,7 @@ import (
 	flag "github.com/spf13/pflag"
 
 	"github.com/trondhindenes/caramba/internal/config"
+	"github.com/trondhindenes/caramba/internal/mcpserver"
 	"github.com/trondhindenes/caramba/internal/repo"
 	"github.com/trondhindenes/caramba/internal/store"
 	"github.com/trondhindenes/caramba/internal/store/localdir"
@@ -49,9 +50,14 @@ func run(configPath string, logger *slog.Logger) error {
 
 	alerts := repo.NewAlertRepo(st)
 	templates := repo.NewTemplateRepo(st)
+	mux := http.NewServeMux()
+	mux.Handle("/", web.NewHandler(cfg, alerts, templates, logger))
+	if cfg.MCPToken != "" {
+		mux.Handle("/mcp", mcpserver.NewHandler(alerts, templates, cfg.MCPToken, logger))
+	}
 	srv := &http.Server{
 		Addr:    cfg.Listen,
-		Handler: web.NewHandler(cfg, alerts, templates, logger),
+		Handler: mux,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -63,7 +69,7 @@ func run(configPath string, logger *slog.Logger) error {
 		srv.Shutdown(shutdownCtx)
 	}()
 
-	logger.Info("caramba listening", "addr", cfg.Listen, "store", cfg.Store.Type)
+	logger.Info("caramba listening", "addr", cfg.Listen, "store", cfg.Store.Type, "mcp", cfg.MCPToken != "")
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
