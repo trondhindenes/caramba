@@ -11,3 +11,8 @@ config.yml
 
 # Local planning notes
 /plans/
+
+
+# Local dev stuff
+.env
+.envrc
