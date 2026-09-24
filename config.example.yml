@@ -21,6 +21,8 @@ store:
   # bucket: my-alerts   # gcs only
   # prefix: caramba/    # gcs only, optional
 
+# Where routing rules (configured in the GUI) can send messages. Rules refer
+# to destinations by name.
 destinations: []
 # destinations:
 #   - name: ops-slack

@@ -1,0 +1,6 @@
+{{if .Error}}
+<div class="error-box">{{.Error}}</div>
+{{else}}
+{{if not .Matches}}<p class="notice">Note: this alert does not match the rule's matchers, so live routing would not use this rule for it.</p>{{end}}
+{{template "dispatch" .Dispatch}}
+{{end}}

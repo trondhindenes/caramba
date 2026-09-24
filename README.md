@@ -2,11 +2,11 @@
 
 A webhook receiver for [Grafana alerts](https://grafana.com/docs/grafana/latest/alerting/). caramba receives and persists alert notifications so you can browse them in a web GUI, author message templates against real payloads, and forward templated messages to destinations such as Slack.
 
-**Status: early prototype.** Receiving, persisting, and browsing alerts works. Templating and forwarding are under development.
+**Status: early prototype.** Receiving, persisting, browsing, templating, and routing alerts to Slack work.
 
 ## How it works
 
-Grafana sends one webhook delivery per alert group. caramba stores each delivery verbatim as a JSON file in a pluggable blob store (local folder today, GCS bucket planned) and serves a server-rendered GUI for browsing them. Planned next: templates in both Grafana's notification language and Jinja2, plus rule-based forwarding (label matchers → template → destination).
+Grafana sends one webhook delivery per alert group. caramba stores each delivery verbatim as a JSON file in a pluggable blob store (local folder today, GCS bucket planned) and serves a server-rendered GUI for browsing them. Message templates can be written in Grafana's notification language or Jinja2, and routing rules forward each received alert to destinations such as Slack.
 
 ## Building
 
@@ -54,7 +54,10 @@ retention: 720h                   # how long to keep alerts; 0 = forever (cleanu
 store:
   type: local                     # local | gcs (gcs not implemented yet)
   path: ./data
-destinations: []                  # Slack destinations, used by forwarding (not implemented yet)
+destinations:                     # where routing rules can send messages
+  - name: ops-slack
+    type: slack                     # Slack incoming webhook
+    webhook_url: ${SLACK_WEBHOOK_OPS}
 ```
 
 ### Pointing Grafana at it
@@ -74,6 +77,23 @@ curl -X POST localhost:8080/webhook \
   -H "Authorization: Bearer $WEBHOOK_TOKEN" \
   --data @testdata/grafana-payload.json
 ```
+
+### Routing
+
+Routing rules (the **Rules** page in the GUI) decide where each received alert goes. Rules are evaluated top to bottom and the **first match wins**. A rule combines:
+
+- **Matchers**, one per line as `field = pattern`, all of which must match. `field` is `title` or a dotted path into the alert JSON (`commonLabels.namespace`); paths through lists match if any item matches (`alerts.labels.pod`). Patterns are case-insensitive wildcards (`*`, `?`).
+- A **template** that renders the message.
+- One or more **destinations** from the config file. A rule with none drops matching alerts.
+
+A rule without matchers matches everything; put one last as the default:
+
+| # | Matchers | Template | Destinations |
+|---|---|---|---|
+| 1 | `title = *container restarts*` | restarts | dev-slack |
+| 2 | *(none)* | default | ops-slack |
+
+Routing runs in the background after an alert is stored. Transient Slack failures (5xx, 429, network) are retried; the outcome is shown on the alert's page. Each rule page has a **Send test** button that sends a stored alert through the rule for real.
 
 ### AI agents (MCP)
 
@@ -105,6 +125,9 @@ internal/store/    blob store interface + local-folder implementation
 internal/repo/     typed repositories on top of the store (the future-DB seam)
 internal/web/      webhook endpoint + server-rendered GUI (embedded templates/CSS)
 internal/mcpserver/ MCP endpoint for AI agents (read-only tools)
+internal/route/    rule matching (first match wins)
+internal/dispatch/ routes received alerts: match, render, send, record
+internal/notify/   destination senders (Slack)
 testdata/          captured Grafana webhook payloads used as fixtures
 ```
 

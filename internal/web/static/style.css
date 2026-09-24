@@ -284,3 +284,39 @@ details.help {
 }
 
 details.help summary { cursor: pointer; }
+
+/* Routing rules */
+
+td.actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+td.actions form { display: inline; }
+
+.btn.small { padding: 0.15rem 0.5rem; font-size: 0.8rem; }
+
+.btn:disabled { opacity: 0.4; cursor: default; }
+
+tr.unreachable td { opacity: 0.55; }
+
+.error-text { color: var(--firing); }
+
+fieldset {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+}
+
+legend { font-weight: 600; font-size: 0.9rem; }
+
+form label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.3rem 1.25rem 0.3rem 0;
+  font-weight: 400;
+}
+
+.dispatch { margin-top: 0.5rem; }

@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -9,11 +10,14 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/trondhindenes/caramba/internal/config"
+	"github.com/trondhindenes/caramba/internal/dispatch"
+	"github.com/trondhindenes/caramba/internal/engine"
 	"github.com/trondhindenes/caramba/internal/model"
+	"github.com/trondhindenes/caramba/internal/notify"
 	"github.com/trondhindenes/caramba/internal/repo"
 	"github.com/trondhindenes/caramba/internal/store/localdir"
 )
@@ -22,17 +26,68 @@ const testToken = "test-token"
 
 func newTestServer(t *testing.T) (*httptest.Server, *repo.AlertRepo, *repo.TemplateRepo) {
 	t.Helper()
+	e := newTestEnv(t)
+	return e.ts, e.alerts, e.templates
+}
+
+// testEnv is a full server wired to a fake "ops" destination.
+type testEnv struct {
+	ts         *httptest.Server
+	alerts     *repo.AlertRepo
+	templates  *repo.TemplateRepo
+	rules      *repo.RuleRepo
+	dispatches *repo.DispatchRepo
+	dispatcher *dispatch.Dispatcher
+	ops        *fakeDestination
+}
+
+type fakeDestination struct {
+	mu   sync.Mutex
+	sent []*engine.Rendered
+}
+
+func (f *fakeDestination) Send(_ context.Context, m *engine.Rendered) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sent = append(f.sent, m)
+	return nil
+}
+
+func (f *fakeDestination) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.sent)
+}
+
+func newTestEnv(t *testing.T) *testEnv {
+	t.Helper()
 	st, err := localdir.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	alerts := repo.NewAlertRepo(st)
-	templates := repo.NewTemplateRepo(st)
-	cfg := &config.Config{WebhookToken: testToken}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ts := httptest.NewServer(NewHandler(cfg, alerts, templates, logger))
-	t.Cleanup(ts.Close)
-	return ts, alerts, templates
+	e := &testEnv{
+		alerts:     repo.NewAlertRepo(st),
+		templates:  repo.NewTemplateRepo(st),
+		rules:      repo.NewRuleRepo(st),
+		dispatches: repo.NewDispatchRepo(st),
+		ops:        &fakeDestination{},
+	}
+	dests := notify.NewRegistry(nil)
+	dests.Add("ops", e.ops)
+	e.dispatcher = dispatch.New(e.rules, e.templates, e.dispatches, dests, logger)
+	e.ts = httptest.NewServer(NewHandler(Deps{
+		WebhookToken: testToken,
+		Alerts:       e.alerts,
+		Templates:    e.templates,
+		Rules:        e.rules,
+		Dispatches:   e.dispatches,
+		Dispatcher:   e.dispatcher,
+		Destinations: dests.Names(),
+		Logger:       logger,
+	}))
+	t.Cleanup(e.ts.Close)
+	return e
 }
 
 func fixture(t *testing.T) []byte {
@@ -331,5 +386,123 @@ func TestPreviewFormats(t *testing.T) {
 				t.Errorf("want %q in:\n%s", tc.want, body)
 			}
 		})
+	}
+}
+
+func (e *testEnv) template(t *testing.T) string {
+	t.Helper()
+	tm := &model.Template{Name: "slack", Engine: "jinja2", Title: "{{ status }}", Body: "b"}
+	if err := e.templates.Save(t.Context(), tm); err != nil {
+		t.Fatal(err)
+	}
+	return tm.ID
+}
+
+func (e *testEnv) ruleNames(t *testing.T) []string {
+	t.Helper()
+	rules, err := e.rules.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, r := range rules {
+		names = append(names, r.Name)
+	}
+	return names
+}
+
+func TestRuleCreateAndList(t *testing.T) {
+	e := newTestEnv(t)
+	tid := e.template(t)
+	for _, f := range []url.Values{
+		{"name": {"default"}, "template_id": {tid}, "destinations": {"ops"}},
+		{"name": {"restarts"}, "template_id": {tid}, "matchers": {"title = *container restarts*"}},
+	} {
+		if resp := postForm(t, e.ts, "/rules", f); resp.StatusCode != http.StatusOK {
+			t.Fatalf("create: %d", resp.StatusCode)
+		}
+	}
+	rules, _ := e.rules.List(t.Context())
+	if len(rules) != 2 || rules[1].Matchers[0].Pattern != "*container restarts*" || rules[0].Destinations[0] != "ops" {
+		t.Fatalf("saved rules: %+v", rules)
+	}
+
+	resp, _ := http.Get(e.ts.URL + "/rules")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	for _, want := range []string{"everything (default)", "title = *container restarts*", "never reached"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("rules page missing %q", want)
+		}
+	}
+
+	postForm(t, e.ts, "/rules/"+rules[1].ID+"/move", url.Values{"direction": {"up"}})
+	if got := e.ruleNames(t); got[0] != "restarts" {
+		t.Errorf("after move up: %v", got)
+	}
+}
+
+func TestRuleValidation(t *testing.T) {
+	e := newTestEnv(t)
+	tid := e.template(t)
+	cases := map[string]url.Values{
+		"name is required":    {"template_id": {tid}},
+		"choose a template":   {"name": {"x"}},
+		"matcher line 1":      {"name": {"x"}, "template_id": {tid}, "matchers": {"no equals sign"}},
+		"unknown destination": {"name": {"x"}, "template_id": {tid}, "destinations": {"nope"}},
+	}
+	for want, form := range cases {
+		resp := postForm(t, e.ts, "/rules", form)
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), want) {
+			t.Errorf("want %q in error page", want)
+		}
+	}
+	if got := e.ruleNames(t); len(got) != 0 {
+		t.Errorf("invalid rules were saved: %v", got)
+	}
+}
+
+func TestWebhookRoutesAlert(t *testing.T) {
+	e := newTestEnv(t)
+	e.rules.Save(t.Context(), &model.Rule{Name: "default", TemplateID: e.template(t), Destinations: []string{"ops"}})
+
+	resp := postWebhook(t, e.ts, testToken, fixture(t))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("webhook: %d", resp.StatusCode)
+	}
+	e.dispatcher.Wait()
+	if e.ops.count() != 1 {
+		t.Fatalf("want 1 sent message, got %d", e.ops.count())
+	}
+
+	stored, _, _ := e.alerts.List(t.Context())
+	detail, _ := http.Get(e.ts.URL + "/alerts/" + stored[0].ID)
+	body, _ := io.ReadAll(detail.Body)
+	detail.Body.Close()
+	if !strings.Contains(string(body), "sent") || !strings.Contains(string(body), "default") {
+		t.Errorf("alert page should show routing outcome:\n%s", body)
+	}
+}
+
+func TestRuleTestSend(t *testing.T) {
+	e := newTestEnv(t)
+	rule := &model.Rule{Name: "restarts", TemplateID: e.template(t), Destinations: []string{"ops"},
+		Matchers: []model.Matcher{{Field: "title", Pattern: "*container restarts*"}}}
+	e.rules.Save(t.Context(), rule)
+	alert, _ := e.alerts.Save(t.Context(), fixture(t), time.Now())
+
+	resp := postForm(t, e.ts, "/rules/"+rule.ID+"/test", url.Values{"alert_id": {alert.ID}})
+	body, _ := io.ReadAll(resp.Body)
+	if e.ops.count() != 1 {
+		t.Fatalf("test send should deliver even without a match, sent %d", e.ops.count())
+	}
+	for _, want := range []string{"does not match", "sent"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("result missing %q:\n%s", want, body)
+		}
+	}
+	if _, err := e.dispatches.Get(t.Context(), alert.ID); err == nil {
+		t.Error("test sends must not overwrite the alert's routing record")
 	}
 }

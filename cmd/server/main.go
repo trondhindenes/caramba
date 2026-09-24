@@ -13,7 +13,9 @@ import (
 	flag "github.com/spf13/pflag"
 
 	"github.com/trondhindenes/caramba/internal/config"
+	"github.com/trondhindenes/caramba/internal/dispatch"
 	"github.com/trondhindenes/caramba/internal/mcpserver"
+	"github.com/trondhindenes/caramba/internal/notify"
 	"github.com/trondhindenes/caramba/internal/repo"
 	"github.com/trondhindenes/caramba/internal/store"
 	"github.com/trondhindenes/caramba/internal/store/localdir"
@@ -50,8 +52,21 @@ func run(configPath string, logger *slog.Logger) error {
 
 	alerts := repo.NewAlertRepo(st)
 	templates := repo.NewTemplateRepo(st)
+	rules := repo.NewRuleRepo(st)
+	dispatches := repo.NewDispatchRepo(st)
+	destinations := notify.NewRegistry(cfg.Destinations)
+	dispatcher := dispatch.New(rules, templates, dispatches, destinations, logger)
 	mux := http.NewServeMux()
-	mux.Handle("/", web.NewHandler(cfg, alerts, templates, logger))
+	mux.Handle("/", web.NewHandler(web.Deps{
+		WebhookToken: cfg.WebhookToken,
+		Alerts:       alerts,
+		Templates:    templates,
+		Rules:        rules,
+		Dispatches:   dispatches,
+		Dispatcher:   dispatcher,
+		Destinations: destinations.Names(),
+		Logger:       logger,
+	}))
 	if cfg.MCPToken != "" {
 		mux.Handle("/mcp", mcpserver.NewHandler(alerts, templates, cfg.MCPToken, logger))
 	}
@@ -62,16 +77,23 @@ func run(configPath string, logger *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	drained := make(chan struct{})
 	go func() {
+		defer close(drained)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		srv.Shutdown(shutdownCtx)
 	}()
 
-	logger.Info("caramba listening", "addr", cfg.Listen, "store", cfg.Store.Type, "mcp", cfg.MCPToken != "")
+	logger.Info("caramba listening", "addr", cfg.Listen, "store", cfg.Store.Type,
+		"mcp", cfg.MCPToken != "", "destinations", len(cfg.Destinations))
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	// Once handlers have drained no new routing can start; let in-flight
+	// routing finish so received alerts are not left unsent.
+	<-drained
+	dispatcher.Wait()
 	return nil
 }

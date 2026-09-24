@@ -54,6 +54,13 @@
 </div>
 {{end}}
 
+<h2>Routing</h2>
+{{if .Dispatch}}
+{{template "dispatch" .Dispatch}}
+{{else}}
+<p class="meta">Not routed (received before routing was set up, or still in progress).</p>
+{{end}}
+
 {{if .Templates}}
 <h2>Preview with template</h2>
 <form>

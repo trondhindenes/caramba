@@ -12,9 +12,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
-	"github.com/trondhindenes/caramba/internal/config"
+	"github.com/trondhindenes/caramba/internal/dispatch"
 	"github.com/trondhindenes/caramba/internal/engine"
 	"github.com/trondhindenes/caramba/internal/format"
 	"github.com/trondhindenes/caramba/internal/model"
@@ -27,32 +28,58 @@ var assets embed.FS
 
 const maxPayloadBytes = 1 << 20 // 1 MiB
 
-type Server struct {
-	token        string
-	alerts       *repo.AlertRepo
-	templates    *repo.TemplateRepo
-	engines      engine.Registry
-	logger       *slog.Logger
-	listTmpl     *template.Template
-	detailTmpl   *template.Template
-	tmplListTmpl *template.Template
-	tmplEditTmpl *template.Template
-	previewTmpl  *template.Template
+// Deps are the collaborators the web layer needs.
+type Deps struct {
+	WebhookToken string
+	Alerts       *repo.AlertRepo
+	Templates    *repo.TemplateRepo
+	Rules        *repo.RuleRepo
+	Dispatches   *repo.DispatchRepo
+	Dispatcher   *dispatch.Dispatcher
+	// Destinations lists the configured destination names rules can use.
+	Destinations []string
+	Logger       *slog.Logger
 }
 
-func NewHandler(cfg *config.Config, alerts *repo.AlertRepo, templates *repo.TemplateRepo, logger *slog.Logger) http.Handler {
+type Server struct {
+	token          string
+	alerts         *repo.AlertRepo
+	templates      *repo.TemplateRepo
+	rules          *repo.RuleRepo
+	dispatches     *repo.DispatchRepo
+	dispatcher     *dispatch.Dispatcher
+	destinations   []string
+	engines        engine.Registry
+	logger         *slog.Logger
+	listTmpl       *template.Template
+	detailTmpl     *template.Template
+	tmplListTmpl   *template.Template
+	tmplEditTmpl   *template.Template
+	ruleListTmpl   *template.Template
+	ruleEditTmpl   *template.Template
+	previewTmpl    *template.Template
+	ruleResultTmpl *template.Template
+}
+
+func NewHandler(d Deps) http.Handler {
 	s := &Server{
-		token:        cfg.WebhookToken,
-		alerts:       alerts,
-		templates:    templates,
-		engines:      engine.NewRegistry(),
-		logger:       logger,
-		listTmpl:     parsePage("alerts_list.html"),
-		detailTmpl:   parsePage("alert_detail.html"),
-		tmplListTmpl: parsePage("templates_list.html"),
-		tmplEditTmpl: parsePage("template_edit.html"),
-		previewTmpl: template.Must(template.New("preview.html").Funcs(tmplFuncs).
-			ParseFS(assets, "templates/preview.html")),
+		token:          d.WebhookToken,
+		alerts:         d.Alerts,
+		templates:      d.Templates,
+		rules:          d.Rules,
+		dispatches:     d.Dispatches,
+		dispatcher:     d.Dispatcher,
+		destinations:   d.Destinations,
+		engines:        engine.NewRegistry(),
+		logger:         d.Logger,
+		listTmpl:       parsePage("alerts_list.html"),
+		detailTmpl:     parsePage("alert_detail.html", "dispatch.html"),
+		tmplListTmpl:   parsePage("templates_list.html"),
+		tmplEditTmpl:   parsePage("template_edit.html"),
+		ruleListTmpl:   parsePage("rules_list.html"),
+		ruleEditTmpl:   parsePage("rule_edit.html"),
+		previewTmpl:    parseFragment("preview.html"),
+		ruleResultTmpl: parseFragment("rule_test_result.html", "dispatch.html"),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -68,11 +95,21 @@ func NewHandler(cfg *config.Config, alerts *repo.AlertRepo, templates *repo.Temp
 	mux.HandleFunc("POST /templates/{id}", s.handleTemplateUpdate)
 	mux.HandleFunc("POST /templates/{id}/delete", s.handleTemplateDelete)
 	mux.HandleFunc("POST /preview", s.handlePreview)
+	mux.HandleFunc("GET /rules", s.handleRuleList)
+	mux.HandleFunc("GET /rules/new", s.handleRuleNew)
+	mux.HandleFunc("POST /rules", s.handleRuleCreate)
+	mux.HandleFunc("GET /rules/{id}", s.handleRuleEdit)
+	mux.HandleFunc("POST /rules/{id}", s.handleRuleUpdate)
+	mux.HandleFunc("POST /rules/{id}/delete", s.handleRuleDelete)
+	mux.HandleFunc("POST /rules/{id}/move", s.handleRuleMove)
+	mux.HandleFunc("POST /rules/{id}/test", s.handleRuleTest)
 	mux.Handle("GET /static/", http.FileServerFS(assets))
 	return mux
 }
 
 var tmplFuncs = template.FuncMap{
+	"add":      func(a, b int) int { return a + b },
+	"contains": func(list []string, s string) bool { return slices.Contains(list, s) },
 	"formatTime": func(t time.Time) string {
 		if t.IsZero() {
 			return ""
@@ -81,9 +118,23 @@ var tmplFuncs = template.FuncMap{
 	},
 }
 
-func parsePage(page string) *template.Template {
-	return template.Must(template.New("layout.html").Funcs(tmplFuncs).
-		ParseFS(assets, "templates/layout.html", "templates/"+page))
+// parsePage parses a full page: the layout plus the page and any partials
+// it uses.
+func parsePage(files ...string) *template.Template {
+	paths := []string{"templates/layout.html"}
+	for _, f := range files {
+		paths = append(paths, "templates/"+f)
+	}
+	return template.Must(template.New("layout.html").Funcs(tmplFuncs).ParseFS(assets, paths...))
+}
+
+// parseFragment parses an htmx fragment rendered without the layout.
+func parseFragment(files ...string) *template.Template {
+	paths := make([]string, len(files))
+	for i, f := range files {
+		paths[i] = "templates/" + f
+	}
+	return template.Must(template.New(files[0]).Funcs(tmplFuncs).ParseFS(assets, paths...))
 }
 
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
@@ -112,6 +163,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		"status", stored.Payload.Status,
 		"receiver", stored.Payload.Receiver,
 		"alerts", len(stored.Payload.Alerts))
+	s.dispatcher.Go(stored)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "id": stored.ID})
 }
@@ -160,12 +212,18 @@ func (s *Server) handleAlertDetail(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "listing templates", err)
 		return
 	}
+	dispatched, err := s.dispatches.Get(r.Context(), alert.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.serverError(w, "loading dispatch", err)
+		return
+	}
 	var pretty bytes.Buffer
 	if err := json.Indent(&pretty, alert.Raw, "", "  "); err != nil {
 		pretty.Write(alert.Raw)
 	}
 	s.render(w, s.detailTmpl, map[string]any{
 		"Alert":     alert,
+		"Dispatch":  dispatched,
 		"Templates": templates,
 		"Formats":   format.Names(),
 		"PrettyRaw": pretty.String(),
@@ -273,7 +331,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 			data["Formatted"] = bodyFormat != "" && bodyFormat != format.Raw
 		}
 		var buf bytes.Buffer
-		if err := s.previewTmpl.Execute(&buf, data); err != nil {
+		if err := s.previewTmpl.ExecuteTemplate(&buf, "preview.html", data); err != nil {
 			s.serverError(w, "rendering preview", err)
 			return
 		}

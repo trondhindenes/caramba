@@ -1,0 +1,79 @@
+{{define "content"}}
+<p><a href="/rules">&larr; All rules</a></p>
+<h1>{{if .Rule.ID}}Edit rule{{else}}New rule{{end}}</h1>
+
+{{if .Error}}
+<p class="error-box">{{.Error}}</p>
+{{end}}
+
+<form method="post" action="/rules{{if .Rule.ID}}/{{.Rule.ID}}{{end}}">
+  <div class="form-row">
+    <label>
+      Name
+      <input type="text" name="name" value="{{.Rule.Name}}" required>
+    </label>
+    <label>
+      Template
+      <select name="template_id" required>
+        <option value="">— choose —</option>
+        {{$current := .Rule.TemplateID}}
+        {{range .Templates}}
+        <option value="{{.ID}}" {{if eq .ID $current}}selected{{end}}>{{.Name}} ({{.Engine}})</option>
+        {{end}}
+      </select>
+    </label>
+  </div>
+
+  <label>
+    Matchers
+    <textarea name="matchers" class="mono" rows="4"
+              placeholder="title = *container restarts*">{{.MatchersText}}</textarea>
+  </label>
+  <p class="meta">One per line as <code>field = pattern</code>. All lines must match. Leave empty to match everything (a default rule).
+  <code>field</code> is <code>title</code> or a dotted path into the alert JSON, e.g. <code>commonLabels.namespace</code>;
+  paths through lists match if any item matches, e.g. <code>alerts.labels.pod</code>.
+  Patterns are case-insensitive, with <code>*</code> for any text and <code>?</code> for one character.</p>
+
+  <fieldset>
+    <legend>Destinations</legend>
+    {{$selected := .Rule.Destinations}}
+    {{range .Destinations}}
+    <label class="check"><input type="checkbox" name="destinations" value="{{.}}" {{if contains $selected .}}checked{{end}}> {{.}}</label>
+    {{else}}
+    <p class="meta">No destinations configured. Add them under <code>destinations:</code> in the config file.</p>
+    {{end}}
+    <p class="meta">Select none to drop matching alerts.</p>
+  </fieldset>
+
+  <div class="form-actions">
+    <button class="btn primary" type="submit">Save</button>
+  </div>
+</form>
+
+{{if .Rule.ID}}
+<h2>Send test</h2>
+{{if .Alerts}}
+<form>
+  <div class="form-row">
+    <label>
+      Alert
+      <select name="alert_id">
+        {{range .Alerts}}
+        <option value="{{.ID}}">{{formatTime .ReceivedAt}} — {{.Payload.Status}} — {{range $k, $v := .Payload.GroupLabels}}{{$k}}={{$v}} {{end}}</option>
+        {{end}}
+      </select>
+    </label>
+    <button class="btn" type="button"
+            hx-post="/rules/{{.Rule.ID}}/test" hx-include="closest form" hx-target="#test-result"
+            hx-confirm="Send this alert to the rule's destinations for real?">
+      Send test
+    </button>
+  </div>
+</form>
+<p class="meta">Renders the chosen alert with the saved rule and sends it to the rule's destinations, even if the matchers don't match.</p>
+<div id="test-result"></div>
+{{else}}
+<p class="empty">No alerts received yet to test with.</p>
+{{end}}
+{{end}}
+{{end}}

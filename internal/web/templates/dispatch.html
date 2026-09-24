@@ -1,0 +1,26 @@
+{{define "dispatch"}}
+<div class="dispatch">
+  {{if .Error}}
+  <div class="error-box">{{.Error}}</div>
+  {{else if not .RuleID}}
+  <p>No rule matched; nothing was sent.</p>
+  {{else if not .Results}}
+  <p>Rule <a href="/rules/{{.RuleID}}">{{.RuleName}}</a> has no destinations; the alert was dropped.</p>
+  {{end}}
+  {{if .RuleID}}{{if or .Error .Results}}<p>Rule: <a href="/rules/{{.RuleID}}">{{.RuleName}}</a></p>{{end}}{{end}}
+  {{if .Results}}
+  <table class="kv">
+    {{range .Results}}
+    <tr>
+      <th>{{.Destination}}</th>
+      <td>
+        {{if .Error}}<span class="badge firing">failed</span> {{.Error}}{{else}}<span class="badge resolved">sent</span>{{end}}
+        {{if gt .Attempts 1}}<span class="meta">({{.Attempts}} attempts)</span>{{end}}
+      </td>
+    </tr>
+    {{end}}
+  </table>
+  {{end}}
+  <p class="meta">{{formatTime .At}}</p>
+</div>
+{{end}}

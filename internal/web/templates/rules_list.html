@@ -1,0 +1,55 @@
+{{define "content"}}
+<div class="page-head">
+  <h1>Routing rules</h1>
+  <a class="btn" href="/rules/new">New rule</a>
+</div>
+<p class="meta">Each received alert goes through the rules top to bottom; the <strong>first match wins</strong>.
+A rule without matchers matches everything, so keep your default rule last.</p>
+
+{{if not .Destinations}}
+<p class="notice">No destinations are configured. Add Slack webhooks under <code>destinations:</code> in the config file so rules can send somewhere.</p>
+{{end}}
+
+{{if .Rules}}
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Name</th>
+      <th>Matches</th>
+      <th>Template</th>
+      <th>Destinations</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{$last := len .Rules | add -1}}
+    {{range $i, $r := .Rules}}
+    <tr{{if $r.Unreachable}} class="unreachable"{{end}}>
+      <td>{{add $i 1}}</td>
+      <td>
+        <a href="/rules/{{$r.ID}}">{{$r.Name}}</a>
+        {{if $r.Unreachable}}<div class="meta">never reached: a rule above matches everything</div>{{end}}
+      </td>
+      <td>
+        {{range $r.Matchers}}<span class="label">{{.Field}} = {{.Pattern}}</span>{{else}}<em>everything (default)</em>{{end}}
+      </td>
+      <td>{{if $r.TemplateName}}{{$r.TemplateName}}{{else}}<span class="error-text">missing template</span>{{end}}</td>
+      <td>{{range $r.Destinations}}<span class="label">{{.}}</span>{{else}}<em>none (drops alerts)</em>{{end}}</td>
+      <td class="actions">
+        <form method="post" action="/rules/{{$r.ID}}/move">
+          <button class="btn small" name="direction" value="up" title="Move up" {{if eq $i 0}}disabled{{end}}>&uarr;</button>
+          <button class="btn small" name="direction" value="down" title="Move down" {{if eq $i $last}}disabled{{end}}>&darr;</button>
+        </form>
+        <form method="post" action="/rules/{{$r.ID}}/delete" onsubmit="return confirm('Delete rule “{{$r.Name}}”?')">
+          <button class="btn small danger" type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="empty">No rules yet, so received alerts are stored but not forwarded. <a href="/rules/new">Create a default rule</a> to start.</p>
+{{end}}
+{{end}}
