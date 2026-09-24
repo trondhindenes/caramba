@@ -15,4 +15,5 @@ config.yml
 
 # Local dev stuff
 .env
-.envrc.mcp.json
+.envrc
+.mcp.json
