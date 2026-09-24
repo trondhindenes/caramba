@@ -7,6 +7,11 @@ listen: ":8080"
 # Bearer token on the Grafana webhook contact point.
 webhook_token: ${WEBHOOK_TOKEN}
 
+# Bearer token for the MCP endpoint (/mcp), which lets AI agents browse
+# alerts and preview templates. Leave empty to disable the endpoint. Must
+# differ from webhook_token.
+mcp_token: ${MCP_TOKEN}
+
 # How long to keep received alerts. 0 disables cleanup.
 retention: 720h
 

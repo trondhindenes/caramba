@@ -41,6 +41,7 @@ type Destination struct {
 type Config struct {
 	Listen       string        `yaml:"listen"`
 	WebhookToken string        `yaml:"webhook_token"`
+	MCPToken     string        `yaml:"mcp_token"`
 	Retention    Duration      `yaml:"retention"`
 	Store        StoreConfig   `yaml:"store"`
 	Destinations []Destination `yaml:"destinations"`
@@ -66,6 +67,9 @@ func Load(path string) (*Config, error) {
 func (c *Config) validate() error {
 	if c.WebhookToken == "" {
 		return errors.New("webhook_token is required (set WEBHOOK_TOKEN or put a value in the config)")
+	}
+	if c.MCPToken != "" && c.MCPToken == c.WebhookToken {
+		return errors.New("mcp_token must differ from webhook_token")
 	}
 	switch c.Store.Type {
 	case "local":
