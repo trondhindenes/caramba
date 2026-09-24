@@ -78,6 +78,39 @@ curl -X POST localhost:8080/webhook \
   --data @testdata/grafana-payload.json
 ```
 
+### Setting up a Slack destination
+
+caramba posts to Slack through [incoming webhooks](https://api.slack.com/messaging/webhooks). Each webhook URL is tied to one channel, so create one per channel you want to route to:
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**, name it (e.g. `caramba`) and pick your workspace.
+2. Under **Incoming Webhooks**, switch **Activate Incoming Webhooks** on.
+3. Click **Add New Webhook to Workspace**, choose the channel (e.g. `#ops-alerts`) and allow it.
+4. Copy the webhook URL (`https://hooks.slack.com/services/T…/B…/…`). Treat it as a secret: anyone with it can post to the channel.
+
+Reference it from the config through an environment variable, so the URL stays out of the file:
+
+```yaml
+destinations:
+  - name: ops-slack                         # the name rules refer to
+    type: slack
+    webhook_url: ${SLACK_WEBHOOK_OPS}
+  - name: dev-slack
+    type: slack
+    webhook_url: ${SLACK_WEBHOOK_DEV}
+```
+
+```sh
+docker run -p 8080:8080 \
+  -v $(pwd)/config.yml:/etc/caramba/config.yml \
+  -v caramba-data:/data \
+  -e WEBHOOK_TOKEN=some-secret \
+  -e SLACK_WEBHOOK_OPS=https://hooks.slack.com/services/T000/B000/XXXX \
+  -e SLACK_WEBHOOK_DEV=https://hooks.slack.com/services/T000/B111/YYYY \
+  ghcr.io/trondhindenes/caramba:latest
+```
+
+Destinations are read at startup; restart caramba after changing them. They then appear as checkboxes on the rule editor. Messages are sent as Slack mrkdwn — the template title in bold, then the body — so preview templates with **Render as: slack** to see what the channel will get, and use a rule's **Send test** button to check the webhook end to end.
+
 ### Routing
 
 Routing rules (the **Rules** page in the GUI) decide where each received alert goes. Rules are evaluated top to bottom and the **first match wins**. A rule combines:
