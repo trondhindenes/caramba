@@ -16,6 +16,7 @@ import (
 
 	"github.com/trondhindenes/caramba/internal/config"
 	"github.com/trondhindenes/caramba/internal/engine"
+	"github.com/trondhindenes/caramba/internal/format"
 	"github.com/trondhindenes/caramba/internal/model"
 	"github.com/trondhindenes/caramba/internal/repo"
 	"github.com/trondhindenes/caramba/internal/store"
@@ -166,6 +167,7 @@ func (s *Server) handleAlertDetail(w http.ResponseWriter, r *http.Request) {
 	s.render(w, s.detailTmpl, map[string]any{
 		"Alert":     alert,
 		"Templates": templates,
+		"Formats":   format.Names(),
 		"PrettyRaw": pretty.String(),
 	})
 }
@@ -244,6 +246,7 @@ func (s *Server) renderTemplateEditor(w http.ResponseWriter, r *http.Request, tm
 	s.render(w, s.tmplEditTmpl, map[string]any{
 		"Template": tmpl,
 		"Engines":  s.engines.Names(),
+		"Formats":  format.Names(),
 		"Alerts":   alerts,
 		"Error":    errMsg,
 	})
@@ -252,15 +255,22 @@ func (s *Server) renderTemplateEditor(w http.ResponseWriter, r *http.Request, tm
 // handlePreview renders a template against a stored alert and returns an
 // HTML fragment for the preview pane. It accepts either a saved template
 // (template_id) or unsaved editor contents (engine/title/body), so the
-// editor can preview without saving first.
+// editor can preview without saving first. The format field picks how the
+// body is displayed: raw text, or as Slack or Markdown would show it.
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
+	bodyFormat := r.FormValue("format")
 	result := func(rendered *engine.Rendered, err error) {
 		data := map[string]any{}
+		var body template.HTML
+		if err == nil {
+			body, err = format.Render(bodyFormat, rendered.Body)
+		}
 		if err != nil {
 			data["Error"] = err.Error()
 		} else {
 			data["Title"] = rendered.Title
-			data["Body"] = rendered.Body
+			data["Body"] = body
+			data["Formatted"] = bodyFormat != "" && bodyFormat != format.Raw
 		}
 		var buf bytes.Buffer
 		if err := s.previewTmpl.Execute(&buf, data); err != nil {

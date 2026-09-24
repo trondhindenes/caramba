@@ -49,6 +49,12 @@
         {{end}}
       </select>
     </label>
+    <label>
+      Render as
+      <select name="format" hx-post="/preview" hx-include="#template-form" hx-target="#preview-pane" hx-trigger="change">
+        {{range .Formats}}<option value="{{.}}">{{.}}</option>{{end}}
+      </select>
+    </label>
     <button class="btn" type="button"
             hx-post="/preview" hx-include="#template-form" hx-target="#preview-pane">
       Preview

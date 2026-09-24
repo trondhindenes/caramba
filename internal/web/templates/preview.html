@@ -3,6 +3,10 @@
 {{else}}
 <div class="preview">
   <div class="preview-title">{{.Title}}</div>
+  {{if .Formatted}}
+  <div class="preview-body formatted">{{.Body}}</div>
+  {{else}}
   <pre class="preview-body">{{.Body}}</pre>
+  {{end}}
 </div>
 {{end}}

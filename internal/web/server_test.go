@@ -305,3 +305,31 @@ func TestPreviewRenderErrorShownInline(t *testing.T) {
 		t.Errorf("render error should appear in preview pane, got:\n%s", body)
 	}
 }
+
+func TestPreviewFormats(t *testing.T) {
+	ts, alerts, _ := newTestServer(t)
+	saved, err := alerts.Save(t.Context(), fixture(t), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ format, body, want string }{
+		{"raw", "*{{ .Status }}*", `<pre class="preview-body">*firing*</pre>`},
+		{"slack", "*{{ .Status }}* <https://x.test|link>", `<strong>firing</strong> <a href="https://x.test">link</a>`},
+		{"markdown", "**{{ .Status }}** [link](https://x.test)", `<strong>firing</strong> <a href="https://x.test">link</a>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.format, func(t *testing.T) {
+			resp := postForm(t, ts, "/preview", url.Values{
+				"alert_id": {saved.ID},
+				"engine":   {"grafana"},
+				"title":    {"t"},
+				"body":     {tc.body},
+				"format":   {tc.format},
+			})
+			body, _ := io.ReadAll(resp.Body)
+			if !strings.Contains(string(body), tc.want) {
+				t.Errorf("want %q in:\n%s", tc.want, body)
+			}
+		})
+	}
+}

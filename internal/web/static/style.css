@@ -251,6 +251,32 @@ input[type="text"], textarea, select {
   font-size: 0.9rem;
 }
 
+/* Rendered Slack/Markdown: proportional text like the destination shows. */
+.preview-body.formatted {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.preview-body.formatted code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  font-size: 0.85em;
+}
+
+.preview-body.formatted pre {
+  margin: 0.5rem 0;
+  padding: 0.6rem;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  white-space: pre-wrap;
+}
+
+.preview-body.formatted p {
+  margin: 0 0 0.6rem;
+}
+
 details.help {
   margin-top: 2rem;
   color: var(--muted);
