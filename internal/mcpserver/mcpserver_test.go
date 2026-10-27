@@ -15,6 +15,7 @@ import (
 
 	"github.com/trondhindenes/caramba/internal/model"
 	"github.com/trondhindenes/caramba/internal/repo"
+	"github.com/trondhindenes/caramba/internal/route"
 	"github.com/trondhindenes/caramba/internal/store/localdir"
 )
 
@@ -285,5 +286,47 @@ func TestDeleteTemplate(t *testing.T) {
 	stored, _ := f.templates.List(t.Context())
 	if len(stored) != 1 || stored[0].ID != used.ID {
 		t.Errorf("remaining templates: %+v", stored)
+	}
+}
+
+func TestGuide(t *testing.T) {
+	cs := connect(t, newRepos(t))
+	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "get_guide"})
+	if err != nil || res.IsError {
+		t.Fatalf("get_guide: %v %v", err, res)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	for _, want := range []string{"first match wins", "commonLabels.alertname = ", "<https://url|label>"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("guide lacks %q", want)
+		}
+	}
+}
+
+// TestGuideMatcherClaims keeps the guide's central matcher advice true.
+func TestGuideMatcherClaims(t *testing.T) {
+	raw, err := os.ReadFile("../../testdata/grafana-payload.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc any
+	json.Unmarshal(raw, &doc)
+	cases := map[string]bool{
+		"alertname = HighCPU":               false, // labels are never top-level
+		"commonLabels.alertname = HighCPU":  true,
+		"commonLabels.alertname = highcpu":  true,  // case-insensitive
+		"commonLabels.alertname = High":     false, // whole value
+		"title = HighCPU":                   false, // title has a status prefix
+		"title = *HighCPU*":                 true,
+		"alerts.labels.alertname = HighCPU": true,
+	}
+	for line, want := range cases {
+		ms, err := route.ParseMatchers(line)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := route.Matches(&model.Rule{Matchers: ms}, doc); got != want {
+			t.Errorf("%q: matched=%v, want %v", line, got, want)
+		}
 	}
 }

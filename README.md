@@ -164,6 +164,7 @@ Routing runs in the background after an alert is stored. Transient delivery fail
 
 When `mcp_token` is set, caramba serves a [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/mcp` (streamable HTTP, stateless). It lets an agent browse stored alerts and author templates by previewing drafts against real payloads:
 
+- guide: `get_guide` returns a usage guide (rules, matchers and ordering with examples, template formatting) so the agent can advise on rules it can't edit; the source is `internal/mcpserver/guide.md`
 - read: `list_alerts`, `get_alert`, `list_templates`, `get_template`, `preview_template`
 - write: `save_template` (create, or update by id; validated before saving) and `delete_template` (refused while a routing rule uses the template)
 
