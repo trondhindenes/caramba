@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -108,6 +109,113 @@ func TestAttachmentColors(t *testing.T) {
 		a := body.Load().(map[string]any)["attachments"].([]any)[0].(map[string]any)
 		if a["color"] != tc.want {
 			t.Errorf("%q: color %v, want %q", tc.title, a["color"], tc.want)
+		}
+	}
+}
+
+// teamsCard sends msg to a teams destination and returns the posted card.
+func teamsCard(t *testing.T, m *Message, rules []config.ColorRule) map[string]any {
+	t.Helper()
+	ts, _, body := slackServer(t, http.StatusAccepted)
+	if _, err := registryWith(ts.URL, "teams", rules).Send(context.Background(), "ops", m); err != nil {
+		t.Fatal(err)
+	}
+	payload := body.Load().(map[string]any)
+	a := payload["attachments"].([]any)[0].(map[string]any)
+	if payload["type"] != "message" || a["contentType"] != "application/vnd.microsoft.card.adaptive" {
+		t.Fatalf("not a card message: %v", payload)
+	}
+	return a["content"].(map[string]any)
+}
+
+func TestTeamsCard(t *testing.T) {
+	m := *msg
+	m.Body = "*api* in `prod` is _down_ ~maybe~\n<https://x.test|runbook>\n\n```\n  pod-1\n```\nsnake_case_id"
+	card := teamsCard(t, &m, nil)
+	got, _ := json.Marshal(card["body"])
+	want := `[` +
+		`{"bleed":true,"items":[{"inlines":[{"selectAction":{"type":"Action.OpenUrl","url":"https://grafana.test/rule/1"},"size":"Large","text":"🔴 api down","type":"TextRun","weight":"Bolder"}],"type":"RichTextBlock"}],"style":"attention","type":"Container"},` +
+		`{"inlines":[{"text":"api","type":"TextRun","weight":"Bolder"},{"text":" in ","type":"TextRun"},{"fontType":"Monospace","text":"prod","type":"TextRun"},{"text":" is ","type":"TextRun"},{"italic":true,"text":"down","type":"TextRun"},{"text":" ","type":"TextRun"},{"strikethrough":true,"text":"maybe","type":"TextRun"}],"spacing":"Medium","type":"RichTextBlock"},` +
+		`{"inlines":[{"selectAction":{"type":"Action.OpenUrl","url":"https://x.test"},"text":"runbook","type":"TextRun"}],"spacing":"None","type":"RichTextBlock"},` +
+		`{"items":[{"inlines":[{"fontType":"Monospace","text":"` + "\u00a0\u00a0" + `pod-1","type":"TextRun"}],"spacing":"None","type":"RichTextBlock"}],"spacing":"Medium","style":"emphasis","type":"Container"},` +
+		`{"inlines":[{"text":"snake_case_id","type":"TextRun"}],"spacing":"Small","type":"RichTextBlock"}` +
+		`]`
+	if string(got) != want {
+		t.Errorf("body:\n got %s\nwant %s", got, want)
+	}
+	actions, _ := json.Marshal(card["actions"])
+	if string(actions) != `[{"title":"View in Grafana","type":"Action.OpenUrl","url":"https://grafana.test/rule/1"}]` {
+		t.Errorf("actions: %s", actions)
+	}
+}
+
+func TestTeamsWithoutLink(t *testing.T) {
+	m := *msg
+	m.Link = ""
+	card := teamsCard(t, &m, nil)
+	if _, ok := card["actions"]; ok {
+		t.Error("no link should mean no button")
+	}
+}
+
+func TestTeamsStyles(t *testing.T) {
+	rules := []config.ColorRule{
+		{Title: "*warn*", Color: "warning"},
+		{Title: "*orange*", Color: "#FFA500"},
+		{Title: "*blue*", Color: "#1F77B4"},
+		{Title: "*gray*", Color: "#808080"},
+	}
+	cases := []struct{ status, title, want string }{
+		{"firing", "x", "attention"},
+		{"resolved", "x", "good"},
+		{"", "x", "default"},
+		{"firing", "warn", "warning"},
+		{"firing", "orange", "warning"},
+		{"firing", "blue", "accent"},
+		{"firing", "gray", "emphasis"},
+	}
+	for _, tc := range cases {
+		m := *msg
+		m.Status, m.AlertTitle = tc.status, tc.title
+		header := teamsCard(t, &m, rules)["body"].([]any)[0].(map[string]any)
+		if header["style"] != tc.want {
+			t.Errorf("%s/%s: style %v, want %s", tc.status, tc.title, header["style"], tc.want)
+		}
+	}
+}
+
+func TestTeamsFitsSizeLimit(t *testing.T) {
+	m := *msg
+	m.Body = strings.Repeat("*a* `b` ", 5000)
+	var size int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		size = len(b)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(srv.Close)
+	if _, err := registryWith(srv.URL, "teams", nil).Send(context.Background(), "ops", &m); err != nil {
+		t.Fatal(err)
+	}
+	if size == 0 || size > maxTeamsPayload {
+		t.Errorf("payload is %d bytes", size)
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	cases := []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"short", 10, "short"},
+		{"line one *a*\nline two *b*", 20, "line one *a*\n…(truncated)"},
+		{"no line breaks at all", 8, "no line \n…(truncated)"},
+		{"ab€cd", 4, "ab\n…(truncated)"}, // never splits a character
+	}
+	for _, tc := range cases {
+		if got := truncate(tc.in, tc.max); got != tc.want {
+			t.Errorf("truncate(%q, %d) = %q, want %q", tc.in, tc.max, got, tc.want)
 		}
 	}
 }

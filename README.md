@@ -1,8 +1,8 @@
 # caramba
 
-A webhook receiver for [Grafana alerts](https://grafana.com/docs/grafana/latest/alerting/). caramba receives and persists alert notifications so you can browse them in a web GUI, author message templates against real payloads, and forward templated messages to destinations such as Slack.
+A webhook receiver for [Grafana alerts](https://grafana.com/docs/grafana/latest/alerting/). caramba receives and persists alert notifications so you can browse them in a web GUI, author message templates against real payloads, and forward templated messages to destinations such as Slack and Microsoft Teams.
 
-**Status: early prototype.** Receiving, persisting, browsing, templating, and routing alerts to Slack work.
+**Status: early prototype.** Receiving, persisting, browsing, templating, and routing alerts to Slack and Teams work.
 
 ## How it works
 
@@ -56,9 +56,9 @@ store:
   path: ./data
 destinations:                     # where routing rules can send messages
   - name: ops-slack
-    type: slack-attachment          # slack (plain text) | slack-attachment (color bar)
+    type: slack-attachment          # slack (plain text) | slack-attachment (color bar) | teams
     webhook_url: ${SLACK_WEBHOOK_OPS}
-colors: []                        # optional title → color rules for slack-attachment
+colors: []                        # optional title → color rules for slack-attachment and teams
 ```
 
 ### Pointing Grafana at it
@@ -102,7 +102,7 @@ destinations:
     type: slack
     webhook_url: ${SLACK_WEBHOOK_DEV}
 
-# Optional colors for slack-attachment destinations. The first rule whose
+# Optional colors for slack-attachment and teams destinations. The first rule whose
 # pattern matches the alert's Grafana title (e.g. "[FIRING:1] disk critical …")
 # wins; unmatched alerts are red while firing and green once resolved.
 colors:
@@ -124,6 +124,25 @@ docker run -p 8080:8080 \
 
 Destinations and colors are read at startup; restart caramba after changing them. Destinations then appear as checkboxes on the rule editor. Message bodies are Slack mrkdwn, so preview templates with **Render as: slack** to see what the channel will get, and use a rule's **Send test** button to check the webhook end to end.
 
+### Setting up a Microsoft Teams destination
+
+caramba posts to Teams through a **Workflows** webhook (the replacement for the retired Office 365 connectors):
+
+1. In Teams, open the channel's **⋯** menu → **Workflows**, and pick the template **Post to a channel when a webhook request is received**.
+2. Name it (e.g. `caramba`), choose the team and channel, and create it.
+3. Copy the webhook URL it shows (`https://….logic.azure.com/workflows/…` or `https://….environment.api.powerplatform.com/…`). The `sig=` part is the secret; treat the whole URL as one.
+
+```yaml
+destinations:
+  - name: ops-teams
+    type: teams
+    webhook_url: ${TEAMS_WEBHOOK_OPS}
+```
+
+A `teams` destination sends an [Adaptive Card](https://adaptivecards.io): the title in a band tinted by the alert's color, the body below it, and a **View in Grafana** button. Templates stay in Slack mrkdwn, so one template serves both Slack and Teams destinations: bold, italic, strikethrough, inline code, links and code blocks are converted to the card's own formatting, and the slack preview shows what Teams will display. Teams cards can't take arbitrary colors, so `colors` rules map to the nearest card style: red → attention, orange/yellow → warning, green → good, blue/purple → accent, gray → neutral. Long bodies are truncated to stay under Teams' 28 KB message limit.
+
+Teams accepts the webhook request before the workflow runs, so a **Send test** that succeeds in caramba can still fail inside the workflow; check the workflow's run history in Power Automate if no message appears.
+
 ### Routing
 
 Routing rules (the **Rules** page in the GUI) decide where each received alert goes. Rules are evaluated top to bottom and the **first match wins**. A rule combines:
@@ -139,7 +158,7 @@ A rule without matchers matches everything; put one last as the default:
 | 1 | `title = *container restarts*` | restarts | dev-slack |
 | 2 | *(none)* | default | ops-slack |
 
-Routing runs in the background after an alert is stored. Transient Slack failures (5xx, 429, network) are retried; the outcome is shown on the alert's page. Each rule page has a **Send test** button that sends a stored alert through the rule for real.
+Routing runs in the background after an alert is stored. Transient delivery failures (5xx, 429, network) are retried; the outcome is shown on the alert's page. Each rule page has a **Send test** button that sends a stored alert through the rule for real.
 
 ### AI agents (MCP)
 
@@ -178,7 +197,7 @@ internal/web/      webhook endpoint + server-rendered GUI (embedded templates/CS
 internal/mcpserver/ MCP endpoint for AI agents (alerts, templates)
 internal/route/    rule matching (first match wins)
 internal/dispatch/ routes received alerts: match, render, send, record
-internal/notify/   destination senders (Slack plain text and attachments)
+internal/notify/   destination senders (Slack plain text and attachments, Teams cards)
 testdata/          captured Grafana webhook payloads used as fixtures
 ```
 

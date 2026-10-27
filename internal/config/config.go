@@ -39,7 +39,7 @@ type Destination struct {
 	WebhookURL string `yaml:"webhook_url"`
 }
 
-// ColorRule picks the attachment color for slack-attachment destinations
+// ColorRule picks the color for slack-attachment and teams destinations
 // when the alert's title matches the wildcard pattern.
 type ColorRule struct {
 	Title string `yaml:"title"`
@@ -60,6 +60,7 @@ type Config struct {
 const (
 	DestSlack           = "slack"            // plain text message
 	DestSlackAttachment = "slack-attachment" // legacy attachment with a color bar
+	DestTeams           = "teams"            // Adaptive Card via a Teams Workflows webhook
 )
 
 // Slack accepts hex colors or its named ones.
@@ -110,8 +111,8 @@ func (c *Config) validate() error {
 			return fmt.Errorf("duplicate destination name %q", d.Name)
 		}
 		seen[d.Name] = true
-		if d.Type != DestSlack && d.Type != DestSlackAttachment {
-			return fmt.Errorf("destination %q: type must be %q or %q, got %q", d.Name, DestSlack, DestSlackAttachment, d.Type)
+		if d.Type != DestSlack && d.Type != DestSlackAttachment && d.Type != DestTeams {
+			return fmt.Errorf("destination %q: type must be %q, %q or %q, got %q", d.Name, DestSlack, DestSlackAttachment, DestTeams, d.Type)
 		}
 		if d.WebhookURL == "" {
 			return fmt.Errorf("destination %q: webhook_url is required", d.Name)

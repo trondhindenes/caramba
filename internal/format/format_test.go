@@ -1,6 +1,7 @@
 package format
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,10 @@ func TestSlack(t *testing.T) {
 		{"bold around link", "*<https://x.test|go>*", `<strong><a href="https://x.test">go</a></strong>`},
 		{"snake_case untouched", "rule_uid_value", "rule_uid_value"},
 		{"lone asterisk", "2 * 3 = 6", "2 * 3 = 6"},
+		{"adjacent emphasis", "*a* *b* _c_ _d_", "<strong>a</strong> <strong>b</strong> <em>c</em> <em>d</em>"},
+		{"nested emphasis", "*_both_*", "<strong><em>both</em></strong>"},
+		{"multiline", "*a*\n\n`b`\n", "<strong>a</strong>\n\n<code>b</code>\n"},
+		{"forged placeholder", "\x000\x00 `x`", "0 <code>x</code>"},
 		{"escapes html", "<b>hi</b> & <script>", "&lt;b&gt;hi&lt;/b&gt; &amp; &lt;script&gt;"},
 		{"unsafe scheme not linked", "<javascript:alert(1)|x>", "&lt;javascript:alert(1)|x&gt;"},
 		{"escapes link label", "<https://x.test|<img>>", `<a href="https://x.test">&lt;img</a>&gt;`},
@@ -33,6 +38,22 @@ func TestSlack(t *testing.T) {
 				t.Errorf("got  %q\nwant %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseSlack(t *testing.T) {
+	got := ParseSlack("*Alert* <https://x.test|_open_>\n~old~ `code`\n```\nline 1\n  line 2```tail")
+	want := []Block{
+		{Lines: [][]Span{
+			{{Text: "Alert", Bold: true}, {Text: " "}, {Text: "_open_", URL: "https://x.test"}},
+			{{Text: "old", Strike: true}, {Text: " "}, {Text: "code", Code: true}},
+			nil,
+		}},
+		{Pre: true, Text: "line 1\n  line 2"},
+		{Lines: [][]Span{{{Text: "tail"}}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %+v\nwant %+v", got, want)
 	}
 }
 

@@ -9,9 +9,6 @@ import (
 	"fmt"
 	"html"
 	"html/template"
-	"regexp"
-	"strconv"
-	"strings"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -55,51 +52,4 @@ func renderMarkdown(text string) (template.HTML, error) {
 		return "", fmt.Errorf("rendering markdown: %w", err)
 	}
 	return template.HTML(buf.String()), nil
-}
-
-var (
-	slackCodeBlock = regexp.MustCompile("(?s)```\n?(.*?)```")
-	slackCode      = regexp.MustCompile("`([^`\n]+)`")
-	slackLink      = regexp.MustCompile(`<((?:https?://|mailto:)[^|>\s]+)(?:\|([^>]*))?>`)
-	// Emphasis markers only count at word boundaries, as in Slack, so
-	// snake_case identifiers stay intact.
-	slackBold   = regexp.MustCompile(`(^|[^\w*])\*(\S(?:[^*\n]*?\S)?)\*($|[^\w*])`)
-	slackItalic = regexp.MustCompile(`(^|[^\w_])_(\S(?:[^_\n]*?\S)?)_($|[^\w_])`)
-	slackStrike = regexp.MustCompile(`(^|[^\w~])~(\S(?:[^~\n]*?\S)?)~($|[^\w~])`)
-	placeholder = regexp.MustCompile("\x00(\\d+)\x00")
-)
-
-// renderSlack converts Slack mrkdwn to HTML. Code and links are swapped for
-// placeholders first so their contents escape formatting, then the rest is
-// escaped and emphasis applied.
-func renderSlack(text string) template.HTML {
-	var tokens []string
-	stash := func(s string) string {
-		tokens = append(tokens, s)
-		return "\x00" + strconv.Itoa(len(tokens)-1) + "\x00"
-	}
-	text = strings.ReplaceAll(text, "\x00", "")
-	text = slackCodeBlock.ReplaceAllStringFunc(text, func(m string) string {
-		return stash("<pre>" + html.EscapeString(slackCodeBlock.FindStringSubmatch(m)[1]) + "</pre>")
-	})
-	text = slackCode.ReplaceAllStringFunc(text, func(m string) string {
-		return stash("<code>" + html.EscapeString(slackCode.FindStringSubmatch(m)[1]) + "</code>")
-	})
-	text = slackLink.ReplaceAllStringFunc(text, func(m string) string {
-		parts := slackLink.FindStringSubmatch(m)
-		label := parts[2]
-		if label == "" {
-			label = parts[1]
-		}
-		return stash(`<a href="` + html.EscapeString(parts[1]) + `">` + html.EscapeString(label) + "</a>")
-	})
-	text = html.EscapeString(text)
-	text = slackBold.ReplaceAllString(text, "$1<strong>$2</strong>$3")
-	text = slackItalic.ReplaceAllString(text, "$1<em>$2</em>$3")
-	text = slackStrike.ReplaceAllString(text, "$1<del>$2</del>$3")
-	text = placeholder.ReplaceAllStringFunc(text, func(m string) string {
-		i, _ := strconv.Atoi(placeholder.FindStringSubmatch(m)[1])
-		return tokens[i]
-	})
-	return template.HTML(text)
 }

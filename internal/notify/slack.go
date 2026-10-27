@@ -11,19 +11,21 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // maxSlackText stays under Slack's 40k character limit for message text.
 const maxSlackText = 39000
 
-// webhook posts JSON payloads to a Slack incoming webhook.
+// webhook posts JSON payloads to an incoming webhook.
 type webhook struct {
-	url    string
-	client *http.Client
+	service string // named in errors
+	url     string
+	client  *http.Client
 }
 
-func newWebhook(webhookURL string) webhook {
-	return webhook{url: webhookURL, client: &http.Client{Timeout: 15 * time.Second}}
+func newWebhook(service, webhookURL string) webhook {
+	return webhook{service: service, url: webhookURL, client: &http.Client{Timeout: 15 * time.Second}}
 }
 
 // Slack sends a plain text message: the title in bold above the body, both
@@ -31,7 +33,7 @@ func newWebhook(webhookURL string) webhook {
 type Slack struct{ webhook }
 
 func NewSlack(webhookURL string) *Slack {
-	return &Slack{newWebhook(webhookURL)}
+	return &Slack{newWebhook("slack", webhookURL)}
 }
 
 func (s *Slack) Send(ctx context.Context, msg *Message) error {
@@ -39,7 +41,7 @@ func (s *Slack) Send(ctx context.Context, msg *Message) error {
 	if title := strings.TrimSpace(msg.Title); title != "" {
 		text = "*" + title + "*\n" + text
 	}
-	return s.post(ctx, map[string]string{"text": truncate(text)})
+	return s.post(ctx, map[string]string{"text": truncate(text, maxSlackText)})
 }
 
 // SlackAttachment sends a legacy Slack attachment, the only message form
@@ -50,7 +52,7 @@ type SlackAttachment struct {
 }
 
 func NewSlackAttachment(webhookURL string, colors *colorizer) *SlackAttachment {
-	return &SlackAttachment{webhook: newWebhook(webhookURL), colors: colors}
+	return &SlackAttachment{webhook: newWebhook("slack", webhookURL), colors: colors}
 }
 
 func (s *SlackAttachment) Send(ctx context.Context, msg *Message) error {
@@ -59,7 +61,7 @@ func (s *SlackAttachment) Send(ctx context.Context, msg *Message) error {
 		"fallback":  title,
 		"color":     s.colors.color(msg),
 		"title":     title,
-		"text":      truncate(strings.TrimSpace(msg.Body)),
+		"text":      truncate(strings.TrimSpace(msg.Body), maxSlackText),
 		"mrkdwn_in": []string{"text"},
 		"footer":    "caramba",
 		"ts":        time.Now().Unix(),
@@ -70,11 +72,19 @@ func (s *SlackAttachment) Send(ctx context.Context, msg *Message) error {
 	return s.post(ctx, map[string]any{"attachments": []any{attachment}})
 }
 
-func truncate(text string) string {
-	if len(text) > maxSlackText {
-		return text[:maxSlackText] + "\n…(truncated)"
+// truncate cuts text to at most max bytes, at a line break when one is
+// near (so no formatting is left half open), else on a character boundary.
+func truncate(text string, max int) string {
+	if len(text) <= max {
+		return text
 	}
-	return text
+	if i := strings.LastIndexByte(text[:max], '\n'); i > max/2 {
+		return text[:i] + "\n…(truncated)"
+	}
+	for max > 0 && !utf8.RuneStart(text[max]) {
+		max--
+	}
+	return text[:max] + "\n…(truncated)"
 }
 
 func (w webhook) post(ctx context.Context, payload any) error {
@@ -90,14 +100,15 @@ func (w webhook) post(ctx context.Context, payload any) error {
 	resp, err := w.client.Do(req)
 	if err != nil {
 		// Strip the URL: the webhook URL is the secret.
-		return fmt.Errorf("posting to slack: %w", unwrapURLError(err))
+		return fmt.Errorf("posting to %s: %w", w.service, unwrapURLError(err))
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK {
+	// Slack answers 200, Teams workflows 202 Accepted.
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
 	detail, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	err = fmt.Errorf("slack returned %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
+	err = fmt.Errorf("%s returned %d: %s", w.service, resp.StatusCode, strings.TrimSpace(string(detail)))
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 		return err
 	}

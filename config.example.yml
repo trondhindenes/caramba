@@ -28,10 +28,14 @@ destinations: []
 #   - name: ops-slack
 #     type: slack-attachment   # slack (plain text) | slack-attachment (color bar)
 #     webhook_url: ${SLACK_WEBHOOK_OPS}
+#   - name: ops-teams
+#     type: teams              # Adaptive Card via a Teams Workflows webhook
+#     webhook_url: ${TEAMS_WEBHOOK_OPS}
 
-# Colors for slack-attachment destinations: the first rule whose wildcard
-# pattern matches the alert's Grafana title wins. Unmatched alerts are red
-# while firing and green once resolved.
+# Colors for slack-attachment and teams destinations: the first rule whose
+# wildcard pattern matches the alert's Grafana title wins. Unmatched alerts
+# are red while firing and green once resolved. Teams uses the nearest card
+# style (attention, warning, good, accent).
 colors: []
 # colors:
 #   - title: "*critical*"

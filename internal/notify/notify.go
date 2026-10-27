@@ -58,6 +58,8 @@ func NewRegistry(dests []config.Destination, colors []config.ColorRule) (*Regist
 			r.senders[d.Name] = NewSlack(d.WebhookURL)
 		case config.DestSlackAttachment:
 			r.senders[d.Name] = NewSlackAttachment(d.WebhookURL, colorizer)
+		case config.DestTeams:
+			r.senders[d.Name] = NewTeams(d.WebhookURL, colorizer)
 		}
 	}
 	return r, nil
